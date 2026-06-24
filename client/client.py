@@ -9,6 +9,7 @@ from tkinter import scrolledtext
 import threading
 import re
 import socket
+import struct
 from datetime import datetime
 from urllib.parse import quote
 
@@ -78,6 +79,68 @@ def socks5_ping(host: str, port: int, user: str, password: str,
     except OSError as e:
         return False, str(e)
 
+
+def socks5_udp_check(host: str, port: int, user: str, password: str,
+                     timeout: int = 10) -> tuple:
+    """Проверяет поддержку UDP ASSOCIATE у прокси: делает associate и шлёт
+    DNS-запрос к 8.8.8.8:53 через UDP-релей. Если ответ вернулся — QUIC/UDP
+    можно проксировать (sing-box UDP TProxy). Возвращает (ok, reason)."""
+    t = u = None
+    try:
+        t = socket.create_connection((host, port), timeout=timeout)
+        t.settimeout(timeout)
+        has_auth = bool(user and password)
+        methods = b"\x02" if has_auth else b"\x00"
+        t.sendall(b"\x05" + bytes([len(methods)]) + methods)
+        resp = t.recv(2)
+        if len(resp) < 2 or resp[0] != 5:
+            return False, "invalid SOCKS5 response"
+        if resp[1] == 0xFF:
+            return False, "proxy refused auth methods"
+        if resp[1] == 2:
+            uu, pp = user.encode(), password.encode()
+            t.sendall(b"\x01" + bytes([len(uu)]) + uu + bytes([len(pp)]) + pp)
+            resp = t.recv(2)
+            if len(resp) < 2 or resp[1] != 0:
+                return False, "authentication failed (wrong login/password)"
+        # UDP ASSOCIATE: CMD=3, ATYP=1, BND.ADDR=0.0.0.0, BND.PORT=0
+        t.sendall(b"\x05\x03\x00\x01\x00\x00\x00\x00\x00\x00")
+        resp = t.recv(10)
+        if len(resp) < 10 or resp[1] != 0:
+            return False, "UDP ASSOCIATE rejected by proxy"
+        bnd_ip = socket.inet_ntoa(resp[4:8])
+        bnd_port = struct.unpack("!H", resp[8:10])[0]
+        if bnd_ip in ("0.0.0.0", "127.0.0.1"):
+            bnd_ip = host  # релей слушает на адресе самого прокси
+        # DNS-запрос A example.com
+        dns = b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+        for part in b"example.com".split(b"."):
+            dns += bytes([len(part)]) + part
+        dns += b"\x00\x00\x01\x00\x01"
+        # SOCKS UDP-заголовок: RSV(2)=0, FRAG=0, ATYP=1, DST=8.8.8.8:53
+        pkt = b"\x00\x00\x00\x01" + socket.inet_aton("8.8.8.8") \
+            + struct.pack("!H", 53) + dns
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        u.settimeout(timeout)
+        u.sendto(pkt, (bnd_ip, bnd_port))
+        data, _ = u.recvfrom(2048)
+        if len(data) > 10:
+            return True, "ok"
+        return False, "empty UDP response"
+    except socket.timeout:
+        return False, "UDP relay timeout (associate granted, no forwarding)"
+    except ConnectionRefusedError:
+        return False, "connection refused"
+    except OSError as e:
+        return False, str(e)
+    finally:
+        for sk in (u, t):
+            try:
+                if sk:
+                    sk.close()
+            except Exception:
+                pass
+
 # ── Строки интерфейса ─────────────────────────────────────────────────────────
 
 S = {
@@ -89,6 +152,7 @@ S = {
         "hint":           "Формат: ip:port:user:pass  или  user:pass@ip:port",
         "btn_apply":      "  Route  ",
         "btn_check":      "⬡  Проверить прокси",
+        "btn_udp":        "⬡  Проверить UDP",
         "btn_server":     "⬡  Проверить сервер",
         "log_header":     "Лог:",
         "ready":          "Готов к работе",
@@ -114,6 +178,13 @@ S = {
         "chk_st_ok":      "Прокси работает ✓",
         "chk_st_warn":    "Не США ⚠",
         "chk_st_fail":    "Прокси не работает ✗",
+        "udp_checking":   "Проверяю UDP…",
+        "udp_start":      "Проверяю UDP ASSOCIATE через {}:{} …",
+        "udp_ok":         "✓ UDP работает  |  прокси поддерживает UDP ASSOCIATE — QUIC пойдёт через прокси",
+        "udp_fail":       "✗ UDP не поддерживается: {}",
+        "udp_note":       "   › QUIC будет заблокирован (DROP). Это повышает fraud-score антидетектов.",
+        "udp_st_ok":      "UDP работает ✓",
+        "udp_st_fail":    "UDP не работает ✗",
         "srv_up":         "✓  JackalRouter отвечает",
         "srv_warn":       "⚠  Сервер отвечает — есть проблемы",
         "srv_down":       "✗  Сервер не отвечает на {}:{}",
@@ -136,6 +207,7 @@ S = {
         "hint":           "Format: ip:port:user:pass  or  user:pass@ip:port",
         "btn_apply":      "  Route  ",
         "btn_check":      "⬡  Check proxy",
+        "btn_udp":        "⬡  Check UDP",
         "btn_server":     "⬡  Check server",
         "log_header":     "Log:",
         "ready":          "Ready",
@@ -161,6 +233,13 @@ S = {
         "chk_st_ok":      "Proxy works ✓",
         "chk_st_warn":    "Not US ⚠",
         "chk_st_fail":    "Proxy failed ✗",
+        "udp_checking":   "Checking UDP…",
+        "udp_start":      "Checking UDP ASSOCIATE via {}:{} …",
+        "udp_ok":         "✓ UDP works  |  proxy supports UDP ASSOCIATE — QUIC will go through proxy",
+        "udp_fail":       "✗ UDP not supported: {}",
+        "udp_note":       "   › QUIC will be blocked (DROP). This raises antidetect fraud-score.",
+        "udp_st_ok":      "UDP works ✓",
+        "udp_st_fail":    "UDP failed ✗",
         "srv_up":         "✓  JackalRouter is running",
         "srv_warn":       "⚠  Server responds — issues found",
         "srv_down":       "✗  Server not responding at {}:{}",
@@ -287,13 +366,13 @@ class App:
         proxy_entry.bind("<Control-v>", self._paste_proxy)
         proxy_entry.bind("<Control-V>", self._paste_proxy)
 
-        # ── Кнопка проверки + хинт ───────────────────────────────────────────
+        # ── Кнопки проверки прокси (TCP + UDP) ───────────────────────────────
         row3 = tk.Frame(self.root, bg=self.BG)
-        row3.pack(fill="x", padx=16, pady=(2, 6))
+        row3.pack(fill="x", padx=16, pady=(2, 2))
 
         # Кнопка "Проверить прокси"
         self.btn_check = tk.Button(
-            row3, text="", width=20,
+            row3, text="", width=18,
             bg=self.SURF, fg=self.TEXT,
             font=("Segoe UI", 9), relief="flat", cursor="hand2",
             activebackground="#45475a", activeforeground=self.TEXT,
@@ -301,9 +380,23 @@ class App:
         )
         self.btn_check.pack(side="left")
 
-        self.lbl_hint = tk.Label(row3, bg=self.BG, fg=self.MUTED,
+        # Кнопка "Проверить UDP" (поддержка UDP ASSOCIATE → QUIC)
+        self.btn_udp = tk.Button(
+            row3, text="", width=18,
+            bg=self.SURF, fg=self.TEXT,
+            font=("Segoe UI", 9), relief="flat", cursor="hand2",
+            activebackground="#45475a", activeforeground=self.TEXT,
+            command=self._on_udp_check,
+        )
+        self.btn_udp.pack(side="left", padx=(8, 0))
+
+        # ── Хинт формата (отдельная строка) ──────────────────────────────────
+        row3b = tk.Frame(self.root, bg=self.BG)
+        row3b.pack(fill="x", padx=16, pady=(0, 6))
+
+        self.lbl_hint = tk.Label(row3b, bg=self.BG, fg=self.MUTED,
                                  font=("Segoe UI", 8))
-        self.lbl_hint.pack(side="left", padx=(12, 0))
+        self.lbl_hint.pack(side="left")
 
         # ── Кнопка «Применить» ───────────────────────────────────────────────
         self.btn_apply = tk.Button(
@@ -366,6 +459,7 @@ class App:
         self.lbl_hint.config(text=t["hint"])
         self.btn_apply.config(text=t["btn_apply"])
         self.btn_check.config(text=t["btn_check"])
+        self.btn_udp.config(text=t["btn_udp"])
         self.btn_server.config(text=t["btn_server"])
         self.lbl_log.config(text=t["log_header"])
 
@@ -414,6 +508,7 @@ class App:
         state = "normal" if enabled else "disabled"
         self.btn_apply.config(state=state)
         self.btn_check.config(state=state)
+        self.btn_udp.config(state=state)
         self.btn_server.config(state=state)
 
     # ── Применить прокси ──────────────────────────────────────────────────────
@@ -554,6 +649,41 @@ class App:
     def _on_check_fail(self, msg: str):
         self._log(msg, "err")
         self._status(self._("chk_st_fail"), self.RED)
+        self._set_buttons(True)
+
+    # ── Проверка поддержки UDP (UDP ASSOCIATE → QUIC) ──────────────────────────
+
+    def _on_udp_check(self):
+        proxy_str = self.proxy_var.get().strip()
+        if not proxy_str:
+            self._log(self._("err_no_proxy"), "err"); return
+
+        p = parse_proxy(proxy_str)
+        if not p:
+            self._log(self._("err_format", proxy_str), "err")
+            self._log(self._("err_format2"), "warn"); return
+
+        self._set_buttons(False)
+        self._status(self._("udp_checking"), self.YELLOW)
+        self._log(self._("udp_start", p["ip"], p["port"]), "info")
+        threading.Thread(target=self._udp_check, args=(p,), daemon=True).start()
+
+    def _udp_check(self, p: dict):
+        ok, reason = socks5_udp_check(p["ip"], p["port"], p["user"], p["password"])
+        if ok:
+            self.root.after(0, self._on_udp_ok, self._("udp_ok"))
+        else:
+            self.root.after(0, self._on_udp_fail, self._("udp_fail", reason))
+
+    def _on_udp_ok(self, msg: str):
+        self._log(msg, "ok")
+        self._status(self._("udp_st_ok"), self.GREEN)
+        self._set_buttons(True)
+
+    def _on_udp_fail(self, msg: str):
+        self._log(msg, "err")
+        self._log(self._("udp_note"), "warn")
+        self._status(self._("udp_st_fail"), self.RED)
         self._set_buttons(True)
 
     # ── Проверка сервера ──────────────────────────────────────────────────────
