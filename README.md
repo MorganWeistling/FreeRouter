@@ -273,6 +273,10 @@ sudo systemctl restart jackalrouter
 sudo systemctl restart redsocks
 ```
 
+# Contributors
+
+- [@MorganWeistling](https://github.com/MorganWeistling)
+
 ---
 
 ## License
