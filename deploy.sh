@@ -232,16 +232,15 @@ for net in 0.0.0.0/8 10.0.0.0/8 127.0.0.0/8 169.254.0.0/16 \
            172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4; do
     iptables -t mangle -A SING_BOX -d "$net" -j RETURN
 done
-# DNS (UDP+TCP :53) → TProxy → sing-box: отвечает FakeIP, запоминает домен
-iptables -t mangle -A SING_BOX -p udp --dport 53 -j TPROXY --on-port "$SINGBOX_PORT" --tproxy-mark 1
-iptables -t mangle -A SING_BOX -p tcp --dport 53 -j TPROXY --on-port "$SINGBOX_PORT" --tproxy-mark 1
-# Остальной UDP (QUIC :443, STUN, NTP…) → DROP
-iptables -t mangle -A SING_BOX -p udp -j DROP
-# TCP → TProxy → sing-box :$SINGBOX_PORT (domain по FakeIP-маппингу → SOCKS5)
+# Весь UDP (DNS :53 → FakeIP, QUIC :443, STUN…) → TProxy → sing-box →
+# SOCKS5 UDP ASSOCIATE. QUIC проксируется (не блокируется): рабочий UDP/QUIC
+# нужен, чтобы "резидентный" IP не получал fraud-очки за отсутствие QUIC.
+iptables -t mangle -A SING_BOX -p udp -j TPROXY --on-port "$SINGBOX_PORT" --tproxy-mark 1
+# Весь TCP → TProxy → sing-box :$SINGBOX_PORT (domain по FakeIP-маппингу → SOCKS5)
 iptables -t mangle -A SING_BOX -p tcp -j TPROXY --on-port "$SINGBOX_PORT" --tproxy-mark 1
 iptables -t mangle -D PREROUTING -i "$LAN_IFACE" -j SING_BOX 2>/dev/null || true
 iptables -t mangle -A PREROUTING -i "$LAN_IFACE" -j SING_BOX
-ok "TProxy: DNS+TCP → sing-box :$SINGBOX_PORT  FakeIP (прочий UDP → DROP)"
+ok "TProxy: весь UDP+TCP → sing-box :$SINGBOX_PORT  (QUIC через прокси, FakeIP)"
 
 # ── MASQUERADE + FORWARD ──────────────────────────────────────────────────────
 info "Настраиваю MASQUERADE и FORWARD..."
@@ -422,9 +421,8 @@ echo ""
 echo -e "${W}Защита от утечек на подключённых устройствах:${N}"
 echo -e "  ${G}✓${N} DNS (UDP+TCP :53)       → sing-box FakeIP → домен к прокси (нет IP-утечки)"
 echo -e "  ${G}✓${N} TCP (весь трафик)       → sing-box TProxy → SOCKS5 прокси (по домену)"
-echo -e "  ${G}✓${N} UDP QUIC/HTTP3 :443     → DROP (браузер откатывается на TCP)"
-echo -e "  ${G}✓${N} UDP STUN :3478/:19302   → DROP (WebRTC без реального IP)"
-echo -e "  ${G}✓${N} UDP прочий (NTP etc)    → DROP"
+echo -e "  ${G}✓${N} UDP QUIC/HTTP3 :443     → sing-box TProxy → SOCKS5 UDP ASSOCIATE (нет fraud-очков)"
+echo -e "  ${G}✓${N} UDP STUN/WebRTC         → через прокси (отражает IP прокси, не реальный)"
 echo -e "  ${G}✓${N} MSS clamp 1280          → нет проблем с PMTUD через туннель"
 echo -e "  ${G}✓${N} GRO/GSO/TSO отключены   → нет пересборки сегментов больше MSS"
 echo -e "  ${G}✓${N} IPv6                    → заблокирован"

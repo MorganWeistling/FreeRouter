@@ -139,12 +139,11 @@ def apply_iptables():
         "iptables -t mangle -A SING_BOX -d 192.168.0.0/16 -j RETURN",
         "iptables -t mangle -A SING_BOX -d 224.0.0.0/4 -j RETURN",
         "iptables -t mangle -A SING_BOX -d 240.0.0.0/4 -j RETURN",
-        # DNS (UDP+TCP :53) → TProxy → sing-box: отвечает FakeIP, запоминает домен
-        f"iptables -t mangle -A SING_BOX -p udp --dport 53 -j TPROXY --on-port {SINGBOX_PORT} --tproxy-mark 1",
-        f"iptables -t mangle -A SING_BOX -p tcp --dport 53 -j TPROXY --on-port {SINGBOX_PORT} --tproxy-mark 1",
-        # Остальной UDP (QUIC :443, STUN, NTP…) → DROP прямо в iptables.
-        "iptables -t mangle -A SING_BOX -p udp -j DROP",
-        # TCP → TProxy → sing-box → SOCKS5 (domain отправляет по FakeIP-маппингу)
+        # Весь UDP (DNS :53 → FakeIP, QUIC :443, STUN…) → TProxy → sing-box →
+        # SOCKS5 UDP ASSOCIATE. QUIC проксируется, а не блокируется: отсутствие
+        # рабочего UDP/QUIC у "резидентного" IP повышает fraud-score антидетектов.
+        f"iptables -t mangle -A SING_BOX -p udp -j TPROXY --on-port {SINGBOX_PORT} --tproxy-mark 1",
+        # Весь TCP → TProxy → sing-box → SOCKS5 (domain отправляет по FakeIP-маппингу)
         f"iptables -t mangle -A SING_BOX -p tcp -j TPROXY --on-port {SINGBOX_PORT} --tproxy-mark 1",
         # Привязка к LAN-интерфейсу
         f"iptables -t mangle -D PREROUTING -i {INT_IFACE} -j SING_BOX 2>/dev/null || true",
