@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 """
 JackalRouter — Control Panel (Windows, Tkinter)
-Features: proxy apply, proxy check + geo, EN/RU language toggle.
+Features: proxy apply, proxy check + geo, UDP check, EN/RU language, proxy history.
 """
 
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, ttk
 import threading
 import re
 import socket
 import struct
+import json
+import os
 from datetime import datetime
 from urllib.parse import quote
 
 try:
     import requests
-    requests.get  # ensure it's usable
+    requests.get
 except ImportError:
     import subprocess, sys
     subprocess.check_call([sys.executable, "-m", "pip", "install", "requests[socks]"])
@@ -27,9 +29,9 @@ except ImportError:
     import subprocess, sys
     subprocess.check_call([sys.executable, "-m", "pip", "install", "PySocks"])
 
-SERVER_PORT = 8000
-TIMEOUT     = 15
-CHECK_URL   = "http://ip-api.com/json?fields=status,country,countryCode,regionName,city,isp,query"
+SERVER_PORT  = 8000
+TIMEOUT      = 15
+HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "proxy_history.json")
 
 GEO_URLS = [
     "http://ip-api.com/json?fields=status,country,countryCode,regionName,city,isp,query",
@@ -59,7 +61,6 @@ def socks5_ping(host: str, port: int, user: str, password: str,
             resp = s.recv(2)
             if len(resp) < 2 or resp[1] != 0:
                 s.close(); return False, "authentication failed (wrong login/password)"
-        # CONNECT запрос (ATYP=0x03 hostname)
         d = dest.encode()
         s.sendall(b"\x05\x01\x00\x03" + bytes([len(d)]) + d
                   + dest_port.to_bytes(2, "big"))
@@ -82,9 +83,7 @@ def socks5_ping(host: str, port: int, user: str, password: str,
 
 def socks5_udp_check(host: str, port: int, user: str, password: str,
                      timeout: int = 10) -> tuple:
-    """Проверяет поддержку UDP ASSOCIATE у прокси: делает associate и шлёт
-    DNS-запрос к 8.8.8.8:53 через UDP-релей. Если ответ вернулся — QUIC/UDP
-    можно проксировать (sing-box UDP TProxy). Возвращает (ok, reason)."""
+    """Проверяет поддержку UDP ASSOCIATE у прокси."""
     t = u = None
     try:
         t = socket.create_connection((host, port), timeout=timeout)
@@ -103,7 +102,6 @@ def socks5_udp_check(host: str, port: int, user: str, password: str,
             resp = t.recv(2)
             if len(resp) < 2 or resp[1] != 0:
                 return False, "authentication failed (wrong login/password)"
-        # UDP ASSOCIATE: CMD=3, ATYP=1, BND.ADDR=0.0.0.0, BND.PORT=0
         t.sendall(b"\x05\x03\x00\x01\x00\x00\x00\x00\x00\x00")
         resp = t.recv(10)
         if len(resp) < 10 or resp[1] != 0:
@@ -111,13 +109,11 @@ def socks5_udp_check(host: str, port: int, user: str, password: str,
         bnd_ip = socket.inet_ntoa(resp[4:8])
         bnd_port = struct.unpack("!H", resp[8:10])[0]
         if bnd_ip in ("0.0.0.0", "127.0.0.1"):
-            bnd_ip = host  # релей слушает на адресе самого прокси
-        # DNS-запрос A example.com
+            bnd_ip = host
         dns = b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
         for part in b"example.com".split(b"."):
             dns += bytes([len(part)]) + part
         dns += b"\x00\x00\x01\x00\x01"
-        # SOCKS UDP-заголовок: RSV(2)=0, FRAG=0, ATYP=1, DST=8.8.8.8:53
         pkt = b"\x00\x00\x00\x01" + socket.inet_aton("8.8.8.8") \
             + struct.pack("!H", 53) + dns
         u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -140,6 +136,7 @@ def socks5_udp_check(host: str, port: int, user: str, password: str,
                     sk.close()
             except Exception:
                 pass
+
 
 # ── Строки интерфейса ─────────────────────────────────────────────────────────
 
@@ -198,6 +195,21 @@ S = {
         "srv_st_ok":      "Сервер ✓",
         "srv_st_warn":    "Сервер ⚠",
         "srv_st_down":    "Сервер недоступен ✗",
+        # История
+        "tab_main":       "Управление",
+        "tab_history":    "История",
+        "hist_col_proxy": "Прокси",
+        "hist_col_geo":   "Страна / Город",
+        "hist_col_isp":   "ISP",
+        "hist_col_date":  "Когда",
+        "hist_col_st":    "Ст.",
+        "hist_load":      "⇥  Загрузить",
+        "hist_check":     "⬡  Проверить",
+        "hist_delete":    "✕  Удалить",
+        "hist_nosel":     "Выберите прокси в таблице",
+        "hist_dblclick":  "Двойной клик — загрузить прокси в поле выше",
+        "hist_loaded":    "Загружен из истории: {}",
+        "hist_checking":  "Проверяю прокси из истории…",
     },
     "en": {
         "title":          "JackalRouter — Control Panel",
@@ -253,6 +265,21 @@ S = {
         "srv_st_ok":      "Server ✓",
         "srv_st_warn":    "Server ⚠",
         "srv_st_down":    "Server unreachable ✗",
+        # History
+        "tab_main":       "Control",
+        "tab_history":    "History",
+        "hist_col_proxy": "Proxy",
+        "hist_col_geo":   "Country / City",
+        "hist_col_isp":   "ISP",
+        "hist_col_date":  "When",
+        "hist_col_st":    "St.",
+        "hist_load":      "⇥  Load",
+        "hist_check":     "⬡  Check",
+        "hist_delete":    "✕  Delete",
+        "hist_nosel":     "Select a proxy in the table",
+        "hist_dblclick":  "Double-click to load proxy into the field above",
+        "hist_loaded":    "Loaded from history: {}",
+        "hist_checking":  "Checking proxy from history…",
     },
 }
 
@@ -261,7 +288,6 @@ S = {
 def parse_proxy(s: str):
     """Returns dict(ip, port, user, password) or None."""
     s = s.strip()
-    # Убираем схему: socks5h://, socks5://, http:// и т.п.
     s = re.sub(r'^[a-zA-Z0-9+.\-]+://', '', s)
     m = re.match(r'^([^:@]+):(.+)@([\d.]+):(\d+)$', s)
     if m:
@@ -290,8 +316,11 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.lang = "ru"
-        root.geometry("740x530")
-        root.resizable(False, False)
+        self.history = self._load_history()
+        self._pending_proxy = ""
+        root.geometry("740x570")
+        root.resizable(True, True)
+        root.minsize(700, 520)
         root.configure(bg=self.BG)
         self._build()
         self._apply_lang()
@@ -299,8 +328,46 @@ class App:
     # ── Построение UI ─────────────────────────────────────────────────────────
 
     def _build(self):
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("TNotebook",
+                        background=self.BG, borderwidth=0, tabmargins=0)
+        style.configure("TNotebook.Tab",
+                        background=self.SURF, foreground=self.MUTED,
+                        font=("Segoe UI", 10), padding=[14, 5])
+        style.map("TNotebook.Tab",
+                  background=[("selected", self.PANEL)],
+                  foreground=[("selected", self.BLUE)])
+        style.configure("Hist.Treeview",
+                        background=self.PANEL, foreground=self.TEXT,
+                        fieldbackground=self.PANEL, rowheight=26,
+                        font=("Consolas", 9), borderwidth=0)
+        style.configure("Hist.Treeview.Heading",
+                        background=self.SURF, foreground=self.BLUE,
+                        font=("Segoe UI", 9, "bold"), relief="flat")
+        style.map("Hist.Treeview",
+                  background=[("selected", self.BLUE)],
+                  foreground=[("selected", self.BG)])
+        style.configure("Hist.Vertical.TScrollbar",
+                        background=self.SURF, troughcolor=self.PANEL,
+                        arrowcolor=self.MUTED, borderwidth=0)
+
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True)
+
+        self.tab_main = tk.Frame(self.notebook, bg=self.BG)
+        self.tab_hist = tk.Frame(self.notebook, bg=self.BG)
+        self.notebook.add(self.tab_main, text="Управление")
+        self.notebook.add(self.tab_hist, text="История")
+
+        self._build_main_tab()
+        self._build_history_tab()
+
+    def _build_main_tab(self):
+        p = self.tab_main
+
         # ── Топ-бар: заголовок + переключатель языка ─────────────────────────
-        top = tk.Frame(self.root, bg=self.BG)
+        top = tk.Frame(p, bg=self.BG)
         top.pack(fill="x", padx=16, pady=(14, 0))
 
         left = tk.Frame(top, bg=self.BG)
@@ -313,7 +380,6 @@ class App:
                                      font=("Segoe UI", 9))
         self.lbl_subtitle.pack(anchor="w")
 
-        # Переключатель RU / EN
         lang_frame = tk.Frame(top, bg=self.BG)
         lang_frame.pack(side="right", anchor="n", pady=(4, 0))
 
@@ -322,9 +388,7 @@ class App:
                                 font=("Segoe UI", 9, "bold"),
                                 command=lambda: self._set_lang("ru"))
         self.btn_ru.pack(side="left")
-
         tk.Label(lang_frame, text="|", bg=self.BG, fg=self.MUTED).pack(side="left")
-
         self.btn_en = tk.Button(lang_frame, text="EN", width=3,
                                 relief="flat", cursor="hand2",
                                 font=("Segoe UI", 9, "bold"),
@@ -332,7 +396,7 @@ class App:
         self.btn_en.pack(side="left")
 
         # ── IP Ubuntu ────────────────────────────────────────────────────────
-        row1 = tk.Frame(self.root, bg=self.BG)
+        row1 = tk.Frame(p, bg=self.BG)
         row1.pack(fill="x", padx=16, pady=(14, 4))
 
         self.lbl_ip = tk.Label(row1, bg=self.BG, fg=self.TEXT,
@@ -352,7 +416,7 @@ class App:
         self.btn_server.pack(side="left", padx=(10, 0))
 
         # ── Строка прокси ────────────────────────────────────────────────────
-        row2 = tk.Frame(self.root, bg=self.BG)
+        row2 = tk.Frame(p, bg=self.BG)
         row2.pack(fill="x", padx=16, pady=4)
 
         self.lbl_proxy = tk.Label(row2, bg=self.BG, fg=self.TEXT,
@@ -366,11 +430,10 @@ class App:
         proxy_entry.bind("<Control-v>", self._paste_proxy)
         proxy_entry.bind("<Control-V>", self._paste_proxy)
 
-        # ── Кнопки проверки прокси (TCP + UDP) ───────────────────────────────
-        row3 = tk.Frame(self.root, bg=self.BG)
+        # ── Кнопки проверки прокси ────────────────────────────────────────────
+        row3 = tk.Frame(p, bg=self.BG)
         row3.pack(fill="x", padx=16, pady=(2, 2))
 
-        # Кнопка "Проверить прокси"
         self.btn_check = tk.Button(
             row3, text="", width=18,
             bg=self.SURF, fg=self.TEXT,
@@ -380,7 +443,6 @@ class App:
         )
         self.btn_check.pack(side="left")
 
-        # Кнопка "Проверить UDP" (поддержка UDP ASSOCIATE → QUIC)
         self.btn_udp = tk.Button(
             row3, text="", width=18,
             bg=self.SURF, fg=self.TEXT,
@@ -390,17 +452,17 @@ class App:
         )
         self.btn_udp.pack(side="left", padx=(8, 0))
 
-        # ── Хинт формата (отдельная строка) ──────────────────────────────────
-        row3b = tk.Frame(self.root, bg=self.BG)
+        # ── Хинт формата ─────────────────────────────────────────────────────
+        row3b = tk.Frame(p, bg=self.BG)
         row3b.pack(fill="x", padx=16, pady=(0, 6))
 
         self.lbl_hint = tk.Label(row3b, bg=self.BG, fg=self.MUTED,
                                  font=("Segoe UI", 8))
         self.lbl_hint.pack(side="left")
 
-        # ── Кнопка «Применить» ───────────────────────────────────────────────
+        # ── Кнопка «Route» ───────────────────────────────────────────────────
         self.btn_apply = tk.Button(
-            self.root, text="",
+            p, text="",
             bg=self.BLUE, fg=self.BG,
             font=("Segoe UI", 11, "bold"),
             relief="flat", cursor="hand2",
@@ -412,13 +474,13 @@ class App:
         # ── Статус ───────────────────────────────────────────────────────────
         self.status_var = tk.StringVar()
         self.status_lbl = tk.Label(
-            self.root, textvariable=self.status_var,
+            p, textvariable=self.status_var,
             bg=self.BG, fg=self.TEXT, font=("Segoe UI", 10, "bold")
         )
         self.status_lbl.pack()
 
         # ── Лог ──────────────────────────────────────────────────────────────
-        log_frame = tk.Frame(self.root, bg=self.BG)
+        log_frame = tk.Frame(p, bg=self.BG)
         log_frame.pack(fill="both", expand=True, padx=16, pady=(6, 14))
 
         self.lbl_log = tk.Label(log_frame, bg=self.BG, fg=self.MUTED,
@@ -435,6 +497,68 @@ class App:
         self.log.tag_config("err",  foreground=self.RED)
         self.log.tag_config("info", foreground=self.BLUE)
         self.log.tag_config("warn", foreground=self.YELLOW)
+
+    def _build_history_tab(self):
+        p = self.tab_hist
+
+        # ── Таблица ───────────────────────────────────────────────────────────
+        tree_frame = tk.Frame(p, bg=self.BG)
+        tree_frame.pack(fill="both", expand=True, padx=12, pady=(10, 4))
+
+        sb = ttk.Scrollbar(tree_frame, orient="vertical",
+                           style="Hist.Vertical.TScrollbar")
+        self.hist_tree = ttk.Treeview(
+            tree_frame,
+            style="Hist.Treeview",
+            columns=("server", "geo", "isp", "date", "status"),
+            show="headings",
+            selectmode="browse",
+            yscrollcommand=sb.set,
+        )
+        sb.config(command=self.hist_tree.yview)
+        sb.pack(side="right", fill="y")
+        self.hist_tree.pack(fill="both", expand=True)
+
+        self.hist_tree.column("server", width=160, minwidth=120, anchor="w")
+        self.hist_tree.column("geo",    width=185, minwidth=140, anchor="w")
+        self.hist_tree.column("isp",    width=160, minwidth=100, anchor="w")
+        self.hist_tree.column("date",   width=90,  minwidth=80,  anchor="center")
+        self.hist_tree.column("status", width=36,  minwidth=36,  anchor="center")
+
+        self.hist_tree.tag_configure("ok",      foreground=self.GREEN)
+        self.hist_tree.tag_configure("warn",     foreground=self.YELLOW)
+        self.hist_tree.tag_configure("fail",     foreground=self.RED)
+        self.hist_tree.tag_configure("unknown",  foreground=self.MUTED)
+
+        self.hist_tree.bind("<Double-1>", lambda _e: self._hist_load())
+
+        # ── Кнопки действий ──────────────────────────────────────────────────
+        btn_frame = tk.Frame(p, bg=self.BG)
+        btn_frame.pack(fill="x", padx=12, pady=(2, 4))
+
+        btn_cfg = dict(bg=self.SURF, fg=self.TEXT, font=("Segoe UI", 9),
+                       relief="flat", cursor="hand2",
+                       activebackground="#45475a", activeforeground=self.TEXT,
+                       width=14)
+
+        self.btn_hist_load = tk.Button(btn_frame, **btn_cfg,
+                                       command=self._hist_load)
+        self.btn_hist_load.pack(side="left")
+
+        self.btn_hist_check = tk.Button(btn_frame, **btn_cfg,
+                                        command=self._hist_check)
+        self.btn_hist_check.pack(side="left", padx=(8, 0))
+
+        self.btn_hist_delete = tk.Button(btn_frame, **btn_cfg,
+                                         command=self._hist_delete)
+        self.btn_hist_delete.pack(side="left", padx=(8, 0))
+
+        # ── Подсказка ─────────────────────────────────────────────────────────
+        self.lbl_hist_hint = tk.Label(p, bg=self.BG, fg=self.MUTED,
+                                      font=("Segoe UI", 8))
+        self.lbl_hist_hint.pack(pady=(0, 8))
+
+        self._refresh_hist_table()
 
     def _entry(self, parent, var, width=30):
         return tk.Entry(
@@ -463,11 +587,8 @@ class App:
         self.btn_server.config(text=t["btn_server"])
         self.lbl_log.config(text=t["log_header"])
 
-        # подсветить активный язык
-        active_bg   = self.BLUE
-        active_fg   = self.BG
-        inactive_bg = self.SURF
-        inactive_fg = self.MUTED
+        active_bg, active_fg     = self.BLUE, self.BG
+        inactive_bg, inactive_fg = self.SURF, self.MUTED
         if self.lang == "ru":
             self.btn_ru.config(bg=active_bg,   fg=active_fg)
             self.btn_en.config(bg=inactive_bg, fg=inactive_fg)
@@ -477,6 +598,18 @@ class App:
 
         if not self.status_var.get():
             self.status_var.set(t["ready"])
+
+        self.notebook.tab(0, text=t["tab_main"])
+        self.notebook.tab(1, text=t["tab_history"])
+
+        self.btn_hist_load.config(text=t["hist_load"])
+        self.btn_hist_check.config(text=t["hist_check"])
+        self.btn_hist_delete.config(text=t["hist_delete"])
+        self.lbl_hist_hint.config(text=t["hist_dblclick"])
+        for col, key in [("server", "hist_col_proxy"), ("geo", "hist_col_geo"),
+                         ("isp",    "hist_col_isp"),   ("date", "hist_col_date"),
+                         ("status", "hist_col_st")]:
+            self.hist_tree.heading(col, text=t[key])
 
     def _paste_proxy(self, event):
         try:
@@ -510,6 +643,9 @@ class App:
         self.btn_check.config(state=state)
         self.btn_udp.config(state=state)
         self.btn_server.config(state=state)
+        self.btn_hist_load.config(state=state)
+        self.btn_hist_check.config(state=state)
+        self.btn_hist_delete.config(state=state)
 
     # ── Применить прокси ──────────────────────────────────────────────────────
 
@@ -525,6 +661,7 @@ class App:
             self._log(self._("err_format", proxy), "err")
             self._log(self._("err_format2"), "warn"); return
 
+        self._pending_proxy = proxy
         self._set_buttons(False)
         self._status(self._("sending"), self.YELLOW)
         self._log(self._("log_sending", ubuntu_ip, SERVER_PORT), "info")
@@ -556,6 +693,7 @@ class App:
         self._log(self._("log_ok", data.get("proxy", "")), "ok")
         self._status(self._("st_ok"), self.GREEN)
         self._set_buttons(True)
+        self._hist_upsert(self._pending_proxy, status="unknown")
 
     def _on_apply_err(self, msg: str):
         self._log(msg, "err")
@@ -577,17 +715,18 @@ class App:
         self._set_buttons(False)
         self._status(self._("checking"), self.YELLOW)
         self._log(self._("chk_start", p["ip"], p["port"]), "info")
-        threading.Thread(target=self._check_proxy, args=(p,), daemon=True).start()
+        threading.Thread(target=self._check_proxy, args=(p, proxy_str), daemon=True).start()
 
-    def _check_proxy(self, p: dict):
-        # ── Шаг 1: raw SOCKS5 хендшейк (быстро, точно, не зависит от HTTP) ──
+    def _check_proxy(self, p: dict, proxy_str: str = ""):
         ok, reason = socks5_ping(p["ip"], p["port"], p["user"], p["password"])
         if not ok:
+            if proxy_str:
+                ps = proxy_str
+                self.root.after(0, lambda: self._hist_upsert(ps, status="fail"))
             self.root.after(0, self._on_check_fail, self._("chk_fail", reason))
             return
 
-        # ── Шаг 2: HTTP-запрос через прокси для гео-инфо (best-effort) ───────
-        u = quote(p["user"],     safe="")
+        u  = quote(p["user"],     safe="")
         pw = quote(p["password"], safe="")
         proxies = {
             "http":  f"socks5h://{u}:{pw}@{p['ip']}:{p['port']}",
@@ -605,16 +744,12 @@ class App:
             except Exception:
                 data = None
 
-        if data is None:
-            # SOCKS5 работает, но гео-сервисы недоступны — всё равно ОК
+        if data is None or ("status" in data and data.get("status") != "success"):
             warn = ("⚠ Прокси работает (гео недоступно)"
                     if self.lang == "ru" else "⚠ Proxy works (geo unavailable)")
-            self.root.after(0, self._on_check_warn, warn)
-            return
-
-        if "status" in data and data.get("status") != "success":
-            warn = ("⚠ Прокси работает (гео недоступно)"
-                    if self.lang == "ru" else "⚠ Proxy works (geo unavailable)")
+            if proxy_str:
+                ps = proxy_str
+                self.root.after(0, lambda: self._hist_upsert(ps, status="warn"))
             self.root.after(0, self._on_check_warn, warn)
             return
 
@@ -626,15 +761,24 @@ class App:
         isp     = data.get("isp") or data.get("org", "?")
 
         if code == "US":
-            self.root.after(0, self._on_check_ok,
-                self._("chk_ok", ip, city, region, isp))
+            status = "ok"
+            msg    = self._("chk_ok", ip, city, region, isp)
+            cb     = self._on_check_ok
         elif ip not in ("?", None, ""):
-            self.root.after(0, self._on_check_warn,
-                self._("chk_warn", ip, country, city))
+            status = "warn"
+            msg    = self._("chk_warn", ip, country, city)
+            cb     = self._on_check_warn
         else:
-            warn = ("⚠ Прокси работает (гео недоступно)"
-                    if self.lang == "ru" else "⚠ Proxy works (geo unavailable)")
-            self.root.after(0, self._on_check_warn, warn)
+            status = "warn"
+            msg    = ("⚠ Прокси работает (гео недоступно)"
+                      if self.lang == "ru" else "⚠ Proxy works (geo unavailable)")
+            cb     = self._on_check_warn
+
+        if proxy_str:
+            ps, gd, st = proxy_str, data, status
+            self.root.after(0, lambda: self._hist_upsert(ps, geo_data=gd, status=st))
+
+        self.root.after(0, cb, msg)
 
     def _on_check_ok(self, msg: str):
         self._log(msg, "ok")
@@ -651,7 +795,7 @@ class App:
         self._status(self._("chk_st_fail"), self.RED)
         self._set_buttons(True)
 
-    # ── Проверка поддержки UDP (UDP ASSOCIATE → QUIC) ──────────────────────────
+    # ── Проверка UDP ASSOCIATE ─────────────────────────────────────────────────
 
     def _on_udp_check(self):
         proxy_str = self.proxy_var.get().strip()
@@ -716,34 +860,27 @@ class App:
             ("sing_box", self._("srv_desc_sb")),
             ("dnsmasq",  self._("srv_desc_dns")),
         ]
-
         all_ok = (
             all(data.get(s) == "active" for s, _ in svcs) and
             data.get("iptables") == "ok"
         )
-
         header_key = "srv_up" if all_ok else "srv_warn"
         header_tag = "ok"     if all_ok else "warn"
         self._log(self._(header_key), header_tag)
-
         for svc, label in svcs:
             state = data.get(svc, "unknown")
-            ok = state == "active"
-            dot = "●" if ok else "○"
-            self._log(f"   {dot}  {svc:<12} {state:<10}  {label}",
+            ok    = state == "active"
+            self._log(f"   {'●' if ok else '○'}  {svc:<12} {state:<10}  {label}",
                       "ok" if ok else "warn")
-
         ipt_ok  = data.get("iptables") == "ok"
         ipt_lbl = self._("srv_ipt_ok") if ipt_ok else self._("srv_ipt_err")
         self._log(f"   {'●' if ipt_ok else '○'}  {'iptables':<12} {ipt_lbl}",
                   "ok" if ipt_ok else "err")
-
         proxy = data.get("proxy")
         self._log(
             self._("srv_proxy", proxy) if proxy else self._("srv_no_proxy"),
             "info" if proxy else "warn",
         )
-
         self._status(
             self._("srv_st_ok") if all_ok else self._("srv_st_warn"),
             self.GREEN if all_ok else self.YELLOW,
@@ -756,6 +893,135 @@ class App:
         self._log(self._("srv_hint"), "warn")
         self._status(self._("srv_st_down"), self.RED)
         self._set_buttons(True)
+
+    # ── История ───────────────────────────────────────────────────────────────
+
+    def _load_history(self) -> list:
+        try:
+            if os.path.exists(HISTORY_FILE):
+                with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return []
+
+    def _save_history(self):
+        try:
+            with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.history, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _flag(code: str) -> str:
+        if not code or len(code) != 2:
+            return ""
+        try:
+            return (chr(0x1F1E6 + ord(code[0].upper()) - 65) +
+                    chr(0x1F1E6 + ord(code[1].upper()) - 65))
+        except Exception:
+            return ""
+
+    def _hist_upsert(self, proxy_str: str, geo_data: dict = None, status: str = "unknown"):
+        """Add or update a history entry keyed by IP:port."""
+        if not proxy_str:
+            return
+        p = parse_proxy(proxy_str)
+        if not p:
+            return
+        display = f"{p['ip']}:{p['port']}"
+        now = datetime.now().strftime("%d.%m %H:%M")
+
+        for entry in self.history:
+            if entry.get("display") == display:
+                entry["proxy"]     = proxy_str
+                entry["last_used"] = now
+                if status != "unknown":
+                    entry["status"] = status
+                if geo_data:
+                    entry["country"]      = geo_data.get("country", "?")
+                    entry["country_code"] = geo_data.get("countryCode", "?")
+                    entry["city"]         = geo_data.get("city", "?")
+                    entry["isp"]          = (geo_data.get("isp") or
+                                             geo_data.get("org", "?"))
+                self._save_history()
+                self.root.after(0, self._refresh_hist_table)
+                return
+
+        entry = {
+            "proxy":        proxy_str,
+            "display":      display,
+            "country":      geo_data.get("country", "?")      if geo_data else "?",
+            "country_code": geo_data.get("countryCode", "?")  if geo_data else "?",
+            "city":         geo_data.get("city", "?")         if geo_data else "?",
+            "isp":          (geo_data.get("isp") or geo_data.get("org", "?")) if geo_data else "?",
+            "last_used":    now,
+            "status":       status,
+        }
+        self.history.insert(0, entry)
+        if len(self.history) > 50:
+            self.history = self.history[:50]
+        self._save_history()
+        self.root.after(0, self._refresh_hist_table)
+
+    def _refresh_hist_table(self):
+        for row in self.hist_tree.get_children():
+            self.hist_tree.delete(row)
+        for i, e in enumerate(self.history):
+            code     = e.get("country_code", "")
+            flag     = self._flag(code)
+            city     = e.get("city", "?")
+            geo_str  = f"{flag} {code} / {city}" if code and code != "?" else "?"
+            isp      = e.get("isp", "?")
+            isp_disp = (isp[:22] + "…") if len(isp) > 23 else isp
+            date     = e.get("last_used", "?")
+            st       = e.get("status", "unknown")
+            icon     = {"ok": "✓", "warn": "⚠", "fail": "✗"}.get(st, "?")
+            tag      = st if st in ("ok", "warn", "fail") else "unknown"
+            self.hist_tree.insert("", "end", iid=str(i),
+                values=(e.get("display", "?"), geo_str, isp_disp, date, icon),
+                tags=(tag,))
+
+    def _hist_selected_idx(self):
+        sel = self.hist_tree.selection()
+        if not sel:
+            self._log(self._("hist_nosel"), "warn")
+            return None
+        return int(sel[0])
+
+    def _hist_load(self):
+        idx = self._hist_selected_idx()
+        if idx is None:
+            return
+        entry = self.history[idx]
+        self.proxy_var.set(entry["proxy"])
+        self.notebook.select(0)
+        self._log(self._("hist_loaded", entry["display"]), "info")
+
+    def _hist_check(self):
+        idx = self._hist_selected_idx()
+        if idx is None:
+            return
+        entry = self.history[idx]
+        p = parse_proxy(entry["proxy"])
+        if not p:
+            return
+        self._set_buttons(False)
+        self._status(self._("hist_checking"), self.YELLOW)
+        self._log(self._("chk_start", p["ip"], p["port"]), "info")
+        threading.Thread(
+            target=self._check_proxy,
+            args=(p, entry["proxy"]),
+            daemon=True,
+        ).start()
+
+    def _hist_delete(self):
+        idx = self._hist_selected_idx()
+        if idx is None:
+            return
+        del self.history[idx]
+        self._save_history()
+        self._refresh_hist_table()
 
 
 if __name__ == "__main__":
