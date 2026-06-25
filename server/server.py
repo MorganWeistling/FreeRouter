@@ -81,6 +81,11 @@ def make_singbox_conf(ip: str, port: int, user: str, password: str) -> dict:
                 {"action": "sniff"},
                 {"protocol": "dns", "action": "hijack-dns"},
                 {"ip_is_private": True, "outbound": "direct"},
+                # Блокируем DoH (DNS-over-HTTPS) и DoT (DNS-over-TLS):
+                # телефон получит отказ → упадёт на plain UDP DNS :53 →
+                # sing-box перехватит hijack-dns → ответит FakeIP (нет утечки IP)
+                {"domain": ["dns.google", "one.one.one.one", "cloudflare-dns.com", "doh.pub", "doh.360.cn"], "outbound": "block"},
+                {"port": 853, "outbound": "block"},
             ],
             "final": "proxy",
         },
