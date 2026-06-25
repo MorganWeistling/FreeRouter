@@ -81,7 +81,7 @@ The client includes a **Check UDP** button that tests whether the upstream proxy
 | `server/server.py` | FastAPI server running on Ubuntu as root. Generates sing-box config with FakeIP, manages iptables TProxy rules. |
 | `server/sing-box.service` | systemd unit for sing-box auto-start |
 | `server/jackalrouter.service` | systemd unit for the API server auto-start |
-| `client/client.py` | Windows Tkinter GUI — applies proxy, checks TCP connectivity + geo, checks UDP ASSOCIATE support |
+| `client/client.py` | Windows Tkinter GUI — applies proxy, checks TCP + geo, UDP ASSOCIATE, IP cleanliness (open-source reputation) + speed, proxy history |
 | `deploy.sh` | Full automated deployment script for Ubuntu |
 
 ### Requirements
@@ -144,7 +144,15 @@ python client/client.py
    - `socks5://username:password@ip:port`
 3. Click **Check proxy** — verifies TCP connectivity, shows IP / city / ISP
 4. Click **Check UDP** — verifies SOCKS5 UDP ASSOCIATE support (required for QUIC)
-5. Click **Route** — applies the proxy; all traffic on the router's network is now proxied
+5. Click **Check cleanliness** — checks the exit IP reputation via open sources
+   (ip-api.com `proxy` / `hosting` / `mobile` flags) and measures speed + latency:
+   - **CLEAN** — residential IP, not flagged
+   - **Datacenter** — hosting IP, raises antidetect fraud-score
+   - **DIRTY** — flagged as proxy/VPN/Tor
+6. Click **Route** — applies the proxy; all traffic on the router's network is now proxied
+
+The **History** tab stores every used/checked proxy with its geo, status icon and last
+measured speed; you can reload, re-check or delete entries there.
 
 ### API
 
@@ -232,7 +240,7 @@ JackalRouter использует **SOCKS5 UDP ASSOCIATE**:
 | `server/server.py` | FastAPI-сервер на Ubuntu (от root). Генерирует конфиг sing-box с FakeIP, управляет правилами iptables TProxy. |
 | `server/sing-box.service` | Юнит systemd для автозапуска sing-box |
 | `server/jackalrouter.service` | Юнит systemd для автозапуска API-сервера |
-| `client/client.py` | GUI-клиент на Windows (Tkinter) — применяет прокси, проверяет TCP + гео, проверяет поддержку UDP ASSOCIATE |
+| `client/client.py` | GUI-клиент на Windows (Tkinter) — применяет прокси, проверяет TCP + гео, UDP ASSOCIATE, чистоту IP (репутация из открытых баз) + скорость, история прокси |
 | `deploy.sh` | Скрипт полного автоматического деплоя на Ubuntu |
 
 ### Требования
@@ -295,7 +303,15 @@ python client/client.py
    - `socks5://логин:пароль@ip:port`
 3. Нажмите **Проверить прокси** — проверка TCP, показывает IP / город / ISP
 4. Нажмите **Проверить UDP** — проверка поддержки SOCKS5 UDP ASSOCIATE (нужна для QUIC)
-5. Нажмите **Route** — весь трафик устройств на роутере идёт через прокси
+5. Нажмите **Проверить чистоту** — проверка репутации exit-IP через открытые источники
+   (флаги `proxy` / `hosting` / `mobile` от ip-api.com) + замер скорости и задержки:
+   - **ЧИСТЫЙ** — резидентный IP, без меток
+   - **Datacenter** — хостинговый IP, повышает fraud-score антидетектов
+   - **ГРЯЗНЫЙ** — помечен как proxy/VPN/Tor
+6. Нажмите **Route** — весь трафик устройств на роутере идёт через прокси
+
+Вкладка **История** хранит каждый применённый/проверенный прокси с гео, иконкой статуса
+и последней замеренной скоростью; оттуда можно загрузить, перепроверить или удалить запись.
 
 ### API сервера
 

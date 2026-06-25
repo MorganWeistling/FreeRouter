@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.4] - 2026-06-25
+- Added: Check cleanliness button in the Windows client — checks exit IP reputation via open sources (ip-api.com `proxy` / `hosting` / `mobile` flags) with a CLEAN / Datacenter / DIRTY verdict.
+- Added: Speed & latency measurement (Cloudflare speed endpoint) reported on cleanliness check; last speed is stored in proxy history.
+
 ## [1.3] - 2026-06-25
 - Added: Proxy history tab in the Windows client — stores used proxies with geo info (country, city, ISP, flag), colored status icons (✓/⚠/✗), and actions: Load, Check, Delete.
 - Added: Auto-save to history on Route apply and on proxy check (with geo data).

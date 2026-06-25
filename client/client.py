@@ -12,6 +12,7 @@ import socket
 import struct
 import json
 import os
+import time
 from datetime import datetime
 from urllib.parse import quote
 
@@ -38,6 +39,15 @@ GEO_URLS = [
     "http://ip-api.com/json",
     "http://ipinfo.io/json",
 ]
+
+# Открытый источник для проверки «чистоты»: ip-api.com отдаёт security-флаги
+# proxy / hosting / mobile бесплатно (для некоммерческого использования).
+CLEAN_URL = ("http://ip-api.com/json/?fields=status,message,country,countryCode,"
+             "regionName,city,isp,org,as,query,proxy,hosting,mobile,reverse")
+# Cloudflare speed endpoint — отдаёт N байт мусора, считаем пропускную способность.
+SPEED_URL   = "https://speed.cloudflare.com/__down?bytes={bytes}"
+SPEED_BYTES = 3_000_000          # 3 МБ — достаточно для оценки, не слишком долго
+SPEED_TIMEOUT = 30
 
 
 def socks5_ping(host: str, port: int, user: str, password: str,
@@ -138,6 +148,34 @@ def socks5_udp_check(host: str, port: int, user: str, password: str,
                 pass
 
 
+def measure_speed(proxies: dict) -> tuple:
+    """Качает SPEED_BYTES через прокси, возвращает (mbps, kb_per_s, latency_ms)
+    или (None, None, None) при ошибке."""
+    url = SPEED_URL.format(bytes=SPEED_BYTES)
+    try:
+        t0 = time.time()
+        r = requests.get(url, proxies=proxies, timeout=SPEED_TIMEOUT, stream=True)
+        r.raise_for_status()
+        total = 0
+        first_byte_at = None
+        for chunk in r.iter_content(65536):
+            if not chunk:
+                continue
+            if first_byte_at is None:
+                first_byte_at = time.time()
+            total += len(chunk)
+        dt = time.time() - t0
+        if total <= 0 or dt <= 0:
+            return None, None, None
+        bytes_per_s = total / dt
+        kb_per_s    = bytes_per_s / 1024
+        mbps        = bytes_per_s * 8 / 1_000_000
+        latency_ms  = int((first_byte_at - t0) * 1000) if first_byte_at else None
+        return mbps, kb_per_s, latency_ms
+    except Exception:
+        return None, None, None
+
+
 # ── Строки интерфейса ─────────────────────────────────────────────────────────
 
 S = {
@@ -182,6 +220,21 @@ S = {
         "udp_note":       "   › QUIC будет заблокирован (DROP). Это повышает fraud-score антидетектов.",
         "udp_st_ok":      "UDP работает ✓",
         "udp_st_fail":    "UDP не работает ✗",
+        "btn_clean":      "⬡  Проверить чистоту",
+        "clean_checking": "Проверяю чистоту и скорость…",
+        "clean_start":    "Проверяю чистоту/скорость через {}:{} …",
+        "clean_geo":      "   IP: {}  |  {}, {}  |  {}",
+        "clean_dirty":    "✗ ГРЯЗНЫЙ — IP помечен как proxy/VPN/Tor в открытых базах",
+        "clean_host":     "⚠ Datacenter/Hosting — не резидент, ↑ fraud-score антидетектов",
+        "clean_ok":       "✓ ЧИСТЫЙ — резидентный IP (не proxy, не hosting)",
+        "clean_flags":    "   Флаги:  proxy={}  hosting={}  mobile={}",
+        "clean_rdns":     "   rDNS:  {}",
+        "clean_speed":    "   Скорость: {}  |  задержка {} мс",
+        "clean_speed_na": "   Скорость: измерить не удалось",
+        "clean_geo_na":   "   Репутация недоступна (открытый источник не ответил через прокси)",
+        "clean_st_ok":    "Чистый ✓",
+        "clean_st_warn":  "Datacenter ⚠",
+        "clean_st_fail":  "Грязный ✗",
         "srv_up":         "✓  JackalRouter отвечает",
         "srv_warn":       "⚠  Сервер отвечает — есть проблемы",
         "srv_down":       "✗  Сервер не отвечает на {}:{}",
@@ -252,6 +305,21 @@ S = {
         "udp_note":       "   › QUIC will be blocked (DROP). This raises antidetect fraud-score.",
         "udp_st_ok":      "UDP works ✓",
         "udp_st_fail":    "UDP failed ✗",
+        "btn_clean":      "⬡  Check cleanliness",
+        "clean_checking": "Checking cleanliness & speed…",
+        "clean_start":    "Checking cleanliness/speed via {}:{} …",
+        "clean_geo":      "   IP: {}  |  {}, {}  |  {}",
+        "clean_dirty":    "✗ DIRTY — IP flagged as proxy/VPN/Tor in open databases",
+        "clean_host":     "⚠ Datacenter/Hosting — not residential, ↑ antidetect fraud-score",
+        "clean_ok":       "✓ CLEAN — residential IP (not proxy, not hosting)",
+        "clean_flags":    "   Flags:  proxy={}  hosting={}  mobile={}",
+        "clean_rdns":     "   rDNS:  {}",
+        "clean_speed":    "   Speed: {}  |  latency {} ms",
+        "clean_speed_na": "   Speed: measurement failed",
+        "clean_geo_na":   "   Reputation unavailable (open source did not respond via proxy)",
+        "clean_st_ok":    "Clean ✓",
+        "clean_st_warn":  "Datacenter ⚠",
+        "clean_st_fail":  "Dirty ✗",
         "srv_up":         "✓  JackalRouter is running",
         "srv_warn":       "⚠  Server responds — issues found",
         "srv_down":       "✗  Server not responding at {}:{}",
@@ -452,6 +520,16 @@ class App:
         )
         self.btn_udp.pack(side="left", padx=(8, 0))
 
+        # Кнопка «Проверить чистоту» (репутация через открытые базы + скорость)
+        self.btn_clean = tk.Button(
+            row3, text="", width=20,
+            bg=self.SURF, fg=self.TEXT,
+            font=("Segoe UI", 9), relief="flat", cursor="hand2",
+            activebackground="#45475a", activeforeground=self.TEXT,
+            command=self._on_clean_check,
+        )
+        self.btn_clean.pack(side="left", padx=(8, 0))
+
         # ── Хинт формата ─────────────────────────────────────────────────────
         row3b = tk.Frame(p, bg=self.BG)
         row3b.pack(fill="x", padx=16, pady=(0, 6))
@@ -584,6 +662,7 @@ class App:
         self.btn_apply.config(text=t["btn_apply"])
         self.btn_check.config(text=t["btn_check"])
         self.btn_udp.config(text=t["btn_udp"])
+        self.btn_clean.config(text=t["btn_clean"])
         self.btn_server.config(text=t["btn_server"])
         self.lbl_log.config(text=t["log_header"])
 
@@ -642,6 +721,7 @@ class App:
         self.btn_apply.config(state=state)
         self.btn_check.config(state=state)
         self.btn_udp.config(state=state)
+        self.btn_clean.config(state=state)
         self.btn_server.config(state=state)
         self.btn_hist_load.config(state=state)
         self.btn_hist_check.config(state=state)
@@ -830,6 +910,119 @@ class App:
         self._status(self._("udp_st_fail"), self.RED)
         self._set_buttons(True)
 
+    # ── Проверка чистоты (репутация + скорость) ────────────────────────────────
+
+    def _on_clean_check(self):
+        proxy_str = self.proxy_var.get().strip()
+        if not proxy_str:
+            self._log(self._("err_no_proxy"), "err"); return
+
+        p = parse_proxy(proxy_str)
+        if not p:
+            self._log(self._("err_format", proxy_str), "err")
+            self._log(self._("err_format2"), "warn"); return
+
+        self._set_buttons(False)
+        self._status(self._("clean_checking"), self.YELLOW)
+        self._log(self._("clean_start", p["ip"], p["port"]), "info")
+        threading.Thread(target=self._clean_check, args=(p, proxy_str), daemon=True).start()
+
+    def _clean_check(self, p: dict, proxy_str: str = ""):
+        # ── Шаг 1: прокси вообще живой? ──────────────────────────────────────
+        ok, reason = socks5_ping(p["ip"], p["port"], p["user"], p["password"])
+        if not ok:
+            if proxy_str:
+                ps = proxy_str
+                self.root.after(0, lambda: self._hist_upsert(ps, status="fail"))
+            self.root.after(0, self._on_clean_fail, self._("chk_fail", reason))
+            return
+
+        u  = quote(p["user"],     safe="")
+        pw = quote(p["password"], safe="")
+        proxies = {
+            "http":  f"socks5h://{u}:{pw}@{p['ip']}:{p['port']}",
+            "https": f"socks5h://{u}:{pw}@{p['ip']}:{p['port']}",
+        }
+
+        # ── Шаг 2: репутация через открытый источник (ip-api security-флаги) ──
+        data = None
+        try:
+            resp = requests.get(CLEAN_URL, proxies=proxies, timeout=TIMEOUT)
+            resp.raise_for_status()
+            j = resp.json()
+            if j.get("status") == "success":
+                data = j
+        except Exception:
+            data = None
+
+        # ── Шаг 3: замер скорости (всегда, даже если репутация недоступна) ───
+        mbps, kbps, latency = measure_speed(proxies)
+
+        self.root.after(0, self._on_clean_result, data, proxy_str,
+                        mbps, kbps, latency)
+
+    def _on_clean_result(self, data, proxy_str, mbps, kbps, latency):
+        # ── Вердикт по флагам ────────────────────────────────────────────────
+        if data is None:
+            self._log(self._("clean_geo_na"), "warn")
+            verdict_status = "warn"
+            status_txt, status_col = self._("clean_st_warn"), self.YELLOW
+        else:
+            ip      = data.get("query", "?")
+            country = data.get("country", "?")
+            city    = data.get("city", "?")
+            isp     = data.get("isp") or data.get("org", "?")
+            is_proxy   = bool(data.get("proxy"))
+            is_hosting = bool(data.get("hosting"))
+            is_mobile  = bool(data.get("mobile"))
+            rdns       = data.get("reverse", "")
+
+            self._log(self._("clean_geo", ip, country, city, isp), "info")
+
+            if is_proxy:
+                self._log(self._("clean_dirty"), "err")
+                verdict_status = "fail"
+                status_txt, status_col = self._("clean_st_fail"), self.RED
+            elif is_hosting:
+                self._log(self._("clean_host"), "warn")
+                verdict_status = "warn"
+                status_txt, status_col = self._("clean_st_warn"), self.YELLOW
+            else:
+                self._log(self._("clean_ok"), "ok")
+                verdict_status = "ok"
+                status_txt, status_col = self._("clean_st_ok"), self.GREEN
+
+            self._log(self._("clean_flags", is_proxy, is_hosting, is_mobile),
+                      "err" if (is_proxy or is_hosting) else "ok")
+            if rdns:
+                self._log(self._("clean_rdns", rdns), "info")
+
+        # ── Скорость ─────────────────────────────────────────────────────────
+        speed_str = None
+        if mbps is not None:
+            speed_str = f"{mbps:.1f} Mbps ({kbps:.0f} KB/s)"
+            lat = latency if latency is not None else "?"
+            self._log(self._("clean_speed", speed_str, lat),
+                      "ok" if mbps >= 2 else "warn")
+        else:
+            self._log(self._("clean_speed_na"), "err")
+
+        self._status(status_txt, status_col)
+        self._set_buttons(True)
+
+        # ── Сохранить в историю (гео + статус + скорость) ────────────────────
+        if proxy_str:
+            extra = {}
+            if speed_str:
+                extra["speed"] = speed_str
+            self._hist_upsert(proxy_str, geo_data=data,
+                              status=verdict_status, extra=extra or None)
+
+    def _on_clean_fail(self, msg: str):
+        self._log(msg, "err")
+        self._status(self._("chk_st_fail"), self.RED)
+        self._set_buttons(True)
+
     # ── Проверка сервера ──────────────────────────────────────────────────────
 
     def _on_server_check(self):
@@ -922,7 +1115,8 @@ class App:
         except Exception:
             return ""
 
-    def _hist_upsert(self, proxy_str: str, geo_data: dict = None, status: str = "unknown"):
+    def _hist_upsert(self, proxy_str: str, geo_data: dict = None,
+                     status: str = "unknown", extra: dict = None):
         """Add or update a history entry keyed by IP:port."""
         if not proxy_str:
             return
@@ -944,6 +1138,8 @@ class App:
                     entry["city"]         = geo_data.get("city", "?")
                     entry["isp"]          = (geo_data.get("isp") or
                                              geo_data.get("org", "?"))
+                if extra:
+                    entry.update(extra)
                 self._save_history()
                 self.root.after(0, self._refresh_hist_table)
                 return
@@ -958,6 +1154,8 @@ class App:
             "last_used":    now,
             "status":       status,
         }
+        if extra:
+            entry.update(extra)
         self.history.insert(0, entry)
         if len(self.history) > 50:
             self.history = self.history[:50]
