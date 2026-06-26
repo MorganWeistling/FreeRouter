@@ -9,6 +9,7 @@ import subprocess
 import json
 import re
 import os
+import socket
 import logging
 from typing import Tuple
 from fastapi import FastAPI, HTTPException
@@ -199,6 +200,67 @@ def parse_proxy(proxy_string: str) -> dict:
     )
 
 
+def read_active_proxy() -> dict:
+    """Достаёт активный прокси (ip/port/user/pass) из текущего config.json sing-box."""
+    conf = json.load(open(SINGBOX_CONF))
+    for ob in conf.get("outbounds", []):
+        if ob.get("tag") == "proxy":
+            return {
+                "ip":       ob["server"],
+                "port":     int(ob["server_port"]),
+                "user":     ob.get("username", ""),
+                "password": ob.get("password", ""),
+            }
+    raise RuntimeError("в config.json нет outbound с tag=proxy")
+
+
+def http_get_via_socks(host: str, port: int, user: str, password: str,
+                       target_host: str, target_port: int, path: str,
+                       timeout: int = 15) -> bytes:
+    """Простой HTTP GET через SOCKS5-прокси (raw, без сторонних зависимостей).
+    Используем HTTP/1.0 + Connection: close — ответ без chunked, читаем до EOF."""
+    s = socket.create_connection((host, port), timeout=timeout)
+    try:
+        s.settimeout(timeout)
+        has_auth = bool(user and password)
+        methods = b"\x02" if has_auth else b"\x00"
+        s.sendall(b"\x05" + bytes([len(methods)]) + methods)
+        resp = s.recv(2)
+        if len(resp) < 2 or resp[0] != 5:
+            raise RuntimeError("некорректный SOCKS5-ответ")
+        if resp[1] == 0xFF:
+            raise RuntimeError("прокси отверг методы авторизации")
+        if resp[1] == 2:
+            u, p = user.encode(), password.encode()
+            s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(p)]) + p)
+            resp = s.recv(2)
+            if len(resp) < 2 or resp[1] != 0:
+                raise RuntimeError("ошибка авторизации на прокси")
+        d = target_host.encode()
+        s.sendall(b"\x05\x01\x00\x03" + bytes([len(d)]) + d
+                  + target_port.to_bytes(2, "big"))
+        resp = s.recv(10)
+        if len(resp) < 2 or resp[1] != 0:
+            raise RuntimeError("прокси не смог установить CONNECT")
+        req = (f"GET {path} HTTP/1.0\r\n"
+               f"Host: {target_host}\r\n"
+               f"User-Agent: JackalRouter\r\n"
+               f"Accept: application/json\r\n\r\n")
+        s.sendall(req.encode())
+        buf = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+            if len(buf) > 65536:
+                break
+        sep = buf.find(b"\r\n\r\n")
+        return buf[sep + 4:] if sep >= 0 else buf
+    finally:
+        s.close()
+
+
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
@@ -262,6 +324,41 @@ async def status():
         "port":     SINGBOX_PORT,
         "proxy":    proxy,
     }
+
+
+@app.get("/current_ip")
+async def current_ip():
+    """Возвращает exit-IP и гео того прокси, что сейчас раздаётся в сеть.
+    Запрос к ip-api.com идёт ЧЕРЕЗ активный прокси (по его учётке из config.json),
+    поэтому показывает ровно тот IP, под которым выходят устройства роутера."""
+    try:
+        proxy = read_active_proxy()
+    except Exception as e:
+        return {"ok": False, "error": f"прокси не задан: {e}"}
+
+    proxy_str = f"{proxy['ip']}:{proxy['port']}"
+    try:
+        body = http_get_via_socks(
+            proxy["ip"], proxy["port"], proxy["user"], proxy["password"],
+            "ip-api.com", 80,
+            "/json/?fields=status,message,country,countryCode,regionName,city,isp,query",
+        )
+        data = json.loads(body.decode("utf-8", "ignore"))
+        if data.get("status") != "success":
+            return {"ok": False, "proxy": proxy_str,
+                    "error": data.get("message", "geo lookup failed")}
+        return {
+            "ok":          True,
+            "proxy":       proxy_str,
+            "exit_ip":     data.get("query"),
+            "country":     data.get("country"),
+            "countryCode": data.get("countryCode"),
+            "region":      data.get("regionName"),
+            "city":        data.get("city"),
+            "isp":         data.get("isp"),
+        }
+    except Exception as e:
+        return {"ok": False, "proxy": proxy_str, "error": str(e)}
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

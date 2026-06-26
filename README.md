@@ -151,6 +151,12 @@ python client/client.py
    - **DIRTY** — flagged as proxy/VPN/Tor
 6. Click **Route** — applies the proxy; all traffic on the router's network is now proxied
 
+The **Broadcasting** banner at the top shows the exit IP currently served to the
+router's devices and its geo (country / city / ISP). It refreshes automatically after
+Route / Check server, or on demand via the ⟳ button. The value is resolved
+authoritatively by the server (it queries ip-api.com through the active proxy); if the
+server lacks the `/current_ip` endpoint, the client falls back to resolving it locally.
+
 The **History** tab stores every used/checked proxy with its geo, status icon and last
 measured speed; you can reload, re-check or delete entries there.
 
@@ -159,8 +165,9 @@ measured speed; you can reload, re-check or delete entries there.
 The server exposes a simple REST API on port `8000`:
 
 ```
-POST /set_proxy   {"proxy_string": "ip:port:user:pass"}
-GET  /status      → {"sing_box": "active", "dnsmasq": "active", "iptables": "ok", "proxy": "1.2.3.4:1080"}
+POST /set_proxy    {"proxy_string": "ip:port:user:pass"}
+GET  /status       → {"sing_box": "active", "dnsmasq": "active", "iptables": "ok", "proxy": "1.2.3.4:1080"}
+GET  /current_ip   → {"ok": true, "exit_ip": "5.6.7.8", "countryCode": "US", "city": "...", "isp": "..."}
 ```
 
 ---
@@ -310,6 +317,12 @@ python client/client.py
    - **ГРЯЗНЫЙ** — помечен как proxy/VPN/Tor
 6. Нажмите **Route** — весь трафик устройств на роутере идёт через прокси
 
+Баннер **Раздаётся** вверху показывает exit-IP, который сейчас раздаётся устройствам
+роутера, и его гео (страна / город / ISP). Обновляется автоматически после Route /
+Проверки сервера или по кнопке ⟳. Значение определяет сам сервер (запрос к ip-api.com
+через активный прокси); если у сервера нет эндпоинта `/current_ip`, клиент определяет
+IP сам (по сохранённой учётке прокси).
+
 Вкладка **История** хранит каждый применённый/проверенный прокси с гео, иконкой статуса
 и последней замеренной скоростью; оттуда можно загрузить, перепроверить или удалить запись.
 
@@ -318,8 +331,9 @@ python client/client.py
 Сервер слушает на порту `8000`:
 
 ```
-POST /set_proxy   {"proxy_string": "ip:port:user:pass"}
-GET  /status      → {"sing_box": "active", "dnsmasq": "active", "iptables": "ok", "proxy": "1.2.3.4:1080"}
+POST /set_proxy    {"proxy_string": "ip:port:user:pass"}
+GET  /status       → {"sing_box": "active", "dnsmasq": "active", "iptables": "ok", "proxy": "1.2.3.4:1080"}
+GET  /current_ip   → {"ok": true, "exit_ip": "5.6.7.8", "countryCode": "US", "city": "...", "isp": "..."}
 ```
 
 ### Управление сервисом

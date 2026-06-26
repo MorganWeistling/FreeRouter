@@ -80,7 +80,7 @@ def socks5_ping(host: str, port: int, user: str, password: str,
             return False, "no CONNECT response"
         if resp[1] != 0:
             codes = {1: "server error", 2: "rules forbidden", 3: "network unreachable",
-                     4: "host unreachable", 5: "connection refused"}
+                    4: "host unreachable", 5: "connection refused"}
             return False, f"CONNECT error: {codes.get(resp[1], f'code {resp[1]}')}"
         return True, "ok"
     except socket.timeout:
@@ -182,6 +182,13 @@ S = {
     "ru": {
         "title":          "JackalRouter — Пульт управления",
         "subtitle":       "Управление прокси-маршрутизацией",
+        "cur_label":      "Раздаётся:",
+        "cur_none":       "— нажмите ⟳ или «Проверить сервер»",
+        "cur_loading":    "запрашиваю через активный прокси…",
+        "cur_fmt":        "{}  |  {}  |  {}",
+        "cur_err":        "не удалось определить ({})",
+        "cur_no_proxy":   "прокси не задан — нажмите Route",
+        "cur_partial":    "{} активен (вставьте этот прокси в поле для гео)",
         "ip_label":       "IP Ubuntu:",
         "proxy_label":    "Прокси:",
         "hint":           "Формат: ip:port:user:pass  или  user:pass@ip:port",
@@ -267,6 +274,13 @@ S = {
     "en": {
         "title":          "JackalRouter — Control Panel",
         "subtitle":       "Proxy routing management",
+        "cur_label":      "Broadcasting:",
+        "cur_none":       "— click ⟳ or “Check server”",
+        "cur_loading":    "querying via active proxy…",
+        "cur_fmt":        "{}  |  {}  |  {}",
+        "cur_err":        "could not determine ({})",
+        "cur_no_proxy":   "no proxy set — click Route",
+        "cur_partial":    "{} active (paste this proxy into the field for geo)",
         "ip_label":       "Ubuntu IP:",
         "proxy_label":    "Proxy:",
         "hint":           "Format: ip:port:user:pass  or  user:pass@ip:port",
@@ -462,6 +476,27 @@ class App:
                                 font=("Segoe UI", 9, "bold"),
                                 command=lambda: self._set_lang("en"))
         self.btn_en.pack(side="left")
+
+        # ── Баннер «Сейчас раздаётся» (exit-IP активного прокси + гео) ───────
+        cur = tk.Frame(p, bg=self.PANEL)
+        cur.pack(fill="x", padx=16, pady=(12, 0))
+
+        self.btn_cur = tk.Button(
+            cur, text="⟳", width=3,
+            bg=self.SURF, fg=self.TEXT,
+            font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2",
+            activebackground="#45475a", activeforeground=self.TEXT,
+            command=self._on_refresh_current,
+        )
+        self.btn_cur.pack(side="right", padx=6, pady=5)
+
+        self.lbl_cur_title = tk.Label(cur, bg=self.PANEL, fg=self.BLUE,
+                                      font=("Segoe UI", 9, "bold"))
+        self.lbl_cur_title.pack(side="left", padx=(10, 6), pady=6)
+
+        self.lbl_cur_val = tk.Label(cur, bg=self.PANEL, fg=self.MUTED,
+                                    font=("Segoe UI", 9), anchor="w", justify="left")
+        self.lbl_cur_val.pack(side="left", pady=6, fill="x", expand=True)
 
         # ── IP Ubuntu ────────────────────────────────────────────────────────
         row1 = tk.Frame(p, bg=self.BG)
@@ -665,6 +700,9 @@ class App:
         self.btn_clean.config(text=t["btn_clean"])
         self.btn_server.config(text=t["btn_server"])
         self.lbl_log.config(text=t["log_header"])
+        self.lbl_cur_title.config(text=t["cur_label"])
+        if not getattr(self, "_cur_set", False):
+            self.lbl_cur_val.config(text=t["cur_none"], fg=self.MUTED)
 
         active_bg, active_fg     = self.BLUE, self.BG
         inactive_bg, inactive_fg = self.SURF, self.MUTED
@@ -723,6 +761,7 @@ class App:
         self.btn_udp.config(state=state)
         self.btn_clean.config(state=state)
         self.btn_server.config(state=state)
+        self.btn_cur.config(state=state)
         self.btn_hist_load.config(state=state)
         self.btn_hist_check.config(state=state)
         self.btn_hist_delete.config(state=state)
@@ -774,6 +813,8 @@ class App:
         self._status(self._("st_ok"), self.GREEN)
         self._set_buttons(True)
         self._hist_upsert(self._pending_proxy, status="unknown")
+        # Сразу показать, какой IP теперь раздаётся
+        self._on_refresh_current()
 
     def _on_apply_err(self, msg: str):
         self._log(msg, "err")
@@ -1079,6 +1120,9 @@ class App:
             self.GREEN if all_ok else self.YELLOW,
         )
         self._set_buttons(True)
+        # Обновить баннер «сейчас раздаётся»
+        if proxy:
+            self._on_refresh_current()
 
     def _on_server_down(self, ubuntu_ip: str, reason: str):
         self._log(self._("srv_down", ubuntu_ip, SERVER_PORT), "err")
@@ -1086,6 +1130,110 @@ class App:
         self._log(self._("srv_hint"), "warn")
         self._status(self._("srv_st_down"), self.RED)
         self._set_buttons(True)
+
+    # ── Сейчас раздаётся: exit-IP активного прокси + гео ───────────────────────
+
+    def _set_current(self, text: str, color: str = None, mark: bool = True):
+        self._cur_set = mark
+        self.lbl_cur_val.config(text=text, fg=color or self.MUTED)
+        self.btn_cur.config(state="normal")
+
+    def _on_refresh_current(self):
+        ubuntu_ip = self.ip_var.get().strip()
+        if not ubuntu_ip:
+            self._set_current(self._("cur_err", self._("err_no_ip")), self.RED)
+            return
+        self.btn_cur.config(state="disabled")
+        self._set_current(self._("cur_loading"), self.YELLOW)
+        threading.Thread(target=self._refresh_current_worker,
+                         args=(ubuntu_ip,), daemon=True).start()
+
+    def _refresh_current_worker(self, ubuntu_ip: str):
+        # 1) Авторитетный путь: сервер сам ходит через активный прокси
+        try:
+            r = requests.get(f"http://{ubuntu_ip}:{SERVER_PORT}/current_ip",
+                             timeout=25)
+            if r.status_code == 200:
+                d = r.json()
+                if d.get("ok"):
+                    self.root.after(0, self._show_current,
+                                    d.get("exit_ip"), d.get("countryCode"),
+                                    d.get("country"), d.get("city"), d.get("isp"))
+                    return
+                # Сервер ответил, но прокси не задан / гео не получено
+                err = d.get("error", "?")
+                if "не задан" in err or "no proxy" in err or "tag=proxy" in err:
+                    self.root.after(0, self._set_current,
+                                    self._("cur_no_proxy"), self.YELLOW)
+                    return
+                # иначе пробуем клиентский fallback (вдруг временный сбой гео)
+        except Exception:
+            pass
+        # 2) Fallback: старый сервер без /current_ip → берём ip:port из /status,
+        #    учётку ищем в текущем поле или в истории, гео меряем сами.
+        self._fallback_current(ubuntu_ip)
+
+    def _fallback_current(self, ubuntu_ip: str):
+        try:
+            r = requests.get(f"http://{ubuntu_ip}:{SERVER_PORT}/status",
+                             timeout=TIMEOUT)
+            r.raise_for_status()
+            active = r.json().get("proxy")
+        except Exception as e:
+            self.root.after(0, self._set_current, self._("cur_err", str(e)), self.RED)
+            return
+        if not active:
+            self.root.after(0, self._set_current, self._("cur_no_proxy"), self.YELLOW)
+            return
+
+        full = self._creds_for(active)
+        p = parse_proxy(full) if full else None
+        if not p:
+            self.root.after(0, self._set_current,
+                            self._("cur_partial", active), self.YELLOW)
+            return
+
+        u  = quote(p["user"],     safe="")
+        pw = quote(p["password"], safe="")
+        proxies = {
+            "http":  f"socks5h://{u}:{pw}@{p['ip']}:{p['port']}",
+            "https": f"socks5h://{u}:{pw}@{p['ip']}:{p['port']}",
+        }
+        data = None
+        for url in GEO_URLS:
+            try:
+                resp = requests.get(url, proxies=proxies, timeout=TIMEOUT)
+                resp.raise_for_status()
+                data = resp.json()
+                if data:
+                    break
+            except Exception:
+                data = None
+        if not data or ("status" in data and data.get("status") != "success"):
+            self.root.after(0, self._set_current,
+                            self._("cur_partial", active), self.YELLOW)
+            return
+        self.root.after(0, self._show_current,
+                        data.get("query") or data.get("ip"),
+                        data.get("countryCode"), data.get("country"),
+                        data.get("city"), data.get("isp") or data.get("org"))
+
+    def _show_current(self, ip, code, country, city, isp):
+        flag = self._flag(code or "")
+        geo  = f"{flag} {code or '?'}, {city or country or '?'}".strip()
+        self._set_current(self._("cur_fmt", ip or "?", geo, isp or "?"), self.GREEN)
+
+    def _creds_for(self, display: str):
+        """Ищет полную строку прокси (с учёткой) для активного ip:port —
+        сначала в текущем поле, затем в истории."""
+        cur = self.proxy_var.get().strip()
+        p = parse_proxy(cur)
+        if p and f"{p['ip']}:{p['port']}" == display:
+            return cur
+        for e in self.history:
+            if e.get("display") == display:
+                return e.get("proxy")
+        return None
 
     # ── История ───────────────────────────────────────────────────────────────
 

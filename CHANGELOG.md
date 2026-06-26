@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.5] - 2026-06-26
+- Added: "Broadcasting" banner in the client showing the exit IP currently served to the router's devices and its geo (country / city / ISP), with a ⟳ refresh button and auto-refresh after Route / Check server.
+- Added: server `GET /current_ip` endpoint — resolves the exit IP/geo by querying ip-api.com through the active proxy (using the credentials from config.json). Client falls back to local resolution if the endpoint is absent.
+
 ## [1.4] - 2026-06-25
 - Added: Check cleanliness button in the Windows client — checks exit IP reputation via open sources (ip-api.com `proxy` / `hosting` / `mobile` flags) with a CLEAN / Datacenter / DIRTY verdict.
 - Added: Speed & latency measurement (Cloudflare speed endpoint) reported on cleanliness check; last speed is stored in proxy history.
