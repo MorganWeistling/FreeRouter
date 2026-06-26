@@ -189,6 +189,8 @@ S = {
         "cur_err":        "не удалось определить ({})",
         "cur_no_proxy":   "прокси не задан — нажмите Route",
         "cur_partial":    "{} активен (вставьте этот прокси в поле для гео)",
+        "sec_server":     "СЕРВЕР UBUNTU",
+        "sec_proxy":      "SOCKS5 ПРОКСИ",
         "ip_label":       "IP Ubuntu:",
         "proxy_label":    "Прокси:",
         "hint":           "Формат: ip:port:user:pass  или  user:pass@ip:port",
@@ -281,6 +283,8 @@ S = {
         "cur_err":        "could not determine ({})",
         "cur_no_proxy":   "no proxy set — click Route",
         "cur_partial":    "{} active (paste this proxy into the field for geo)",
+        "sec_server":     "UBUNTU SERVER",
+        "sec_proxy":      "SOCKS5 PROXY",
         "ip_label":       "Ubuntu IP:",
         "proxy_label":    "Proxy:",
         "hint":           "Format: ip:port:user:pass  or  user:pass@ip:port",
@@ -382,27 +386,115 @@ def parse_proxy(s: str):
     return None
 
 
+# ── Скруглённая кнопка (Canvas) с hover-эффектом ──────────────────────────────
+
+class RoundedButton(tk.Canvas):
+    """Кнопка со скруглёнными углами, нарисованная на Canvas. Поддерживает
+    hover, disabled-состояние, смену текста/цвета и тянется по fill='x'."""
+
+    def __init__(self, parent, text="", command=None, *, width=150, height=36,
+                 radius=10, bg="#313244", fg="#cdd6f4", hover="#45475a",
+                 page_bg="#1e1e2e", font=("Segoe UI", 9, "bold")):
+        super().__init__(parent, width=width, height=height, bg=page_bg,
+                         highlightthickness=0, bd=0, takefocus=0)
+        self.command = command
+        self._radius = radius
+        self._bg, self._hover, self._fg = bg, hover, fg
+        self._dis_bg, self._dis_fg = "#26263a", "#585b70"
+        self._font = font
+        self._text = text
+        self._cw, self._ch = width, height
+        self._state = "normal"
+        self._hovering = False
+        self.bind("<Configure>", self._on_configure)
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<Button-1>", self._on_click)
+        self._redraw()
+
+    @staticmethod
+    def _round_pts(x1, y1, x2, y2, r):
+        return [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+                x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+
+    def _fill(self):
+        if self._state == "disabled":
+            return self._dis_bg
+        return self._hover if self._hovering else self._bg
+
+    def _redraw(self):
+        self.delete("all")
+        w, h = self._cw, self._ch
+        r = max(2, min(self._radius, h // 2, w // 2))
+        f = self._fill()
+        self.create_polygon(self._round_pts(1, 1, w - 1, h - 1, r),
+                            smooth=True, splinesteps=24, fill=f, outline=f)
+        fg = self._dis_fg if self._state == "disabled" else self._fg
+        self.create_text(w / 2, h / 2, text=self._text, fill=fg, font=self._font)
+
+    def _on_configure(self, e):
+        self._cw, self._ch = e.width, e.height
+        self._redraw()
+
+    def _on_enter(self, _e):
+        if self._state == "normal":
+            self._hovering = True
+            self.configure(cursor="hand2")
+            self._redraw()
+
+    def _on_leave(self, _e):
+        self._hovering = False
+        self._redraw()
+
+    def _on_click(self, _e):
+        if self._state == "normal" and self.command:
+            self.command()
+
+    def config_text(self, text):
+        self._text = text
+        self._redraw()
+
+    def set_state(self, state):
+        self._state = "normal" if state in ("normal", True) else "disabled"
+        if self._state == "disabled":
+            self._hovering = False
+            self.configure(cursor="")
+        self._redraw()
+
+    def set_colors(self, bg=None, fg=None, hover=None):
+        if bg:    self._bg = bg
+        if fg:    self._fg = fg
+        if hover: self._hover = hover
+        self._redraw()
+
+
 # ── Приложение ────────────────────────────────────────────────────────────────
 
 class App:
-    BG     = "#1e1e2e"
-    PANEL  = "#181825"
-    TEXT   = "#cdd6f4"
-    MUTED  = "#6c7086"
-    BLUE   = "#89b4fa"
-    GREEN  = "#a6e3a1"
-    RED    = "#f38ba8"
-    YELLOW = "#f9e2af"
-    SURF   = "#313244"
+    BG      = "#11111b"   # фон страницы (crust)
+    CARD    = "#1e1e2e"   # карточки (base)
+    PANEL   = "#181825"   # инпуты / лог (mantle)
+    TEXT    = "#cdd6f4"
+    SUB     = "#a6adc8"
+    MUTED   = "#6c7086"
+    BLUE    = "#89b4fa"
+    SAPPH   = "#74c7ec"
+    GREEN   = "#a6e3a1"
+    RED     = "#f38ba8"
+    YELLOW  = "#f9e2af"
+    MAUVE   = "#cba6f7"
+    SURF    = "#313244"
+    SURF2   = "#45475a"
+    BORDER  = "#313244"
 
     def __init__(self, root: tk.Tk):
         self.root = root
         self.lang = "ru"
         self.history = self._load_history()
         self._pending_proxy = ""
-        root.geometry("740x570")
+        root.geometry("780x680")
         root.resizable(True, True)
-        root.minsize(700, 520)
+        root.minsize(720, 600)
         root.configure(bg=self.BG)
         self._build()
         self._apply_lang()
@@ -412,30 +504,27 @@ class App:
     def _build(self):
         style = ttk.Style()
         style.theme_use("clam")
-        style.configure("TNotebook",
-                        background=self.BG, borderwidth=0, tabmargins=0)
-        style.configure("TNotebook.Tab",
-                        background=self.SURF, foreground=self.MUTED,
-                        font=("Segoe UI", 10), padding=[14, 5])
+        style.configure("TNotebook", background=self.BG, borderwidth=0,
+                        tabmargins=[8, 6, 8, 0])
+        style.configure("TNotebook.Tab", background=self.BG, foreground=self.MUTED,
+                        font=("Segoe UI", 10, "bold"), padding=[20, 9], borderwidth=0)
         style.map("TNotebook.Tab",
-                  background=[("selected", self.PANEL)],
-                  foreground=[("selected", self.BLUE)])
-        style.configure("Hist.Treeview",
-                        background=self.PANEL, foreground=self.TEXT,
-                        fieldbackground=self.PANEL, rowheight=26,
+                  background=[("selected", self.CARD)],
+                  foreground=[("selected", self.BLUE), ("active", self.TEXT)])
+        style.configure("Hist.Treeview", background=self.PANEL, foreground=self.TEXT,
+                        fieldbackground=self.PANEL, rowheight=30,
                         font=("Consolas", 9), borderwidth=0)
-        style.configure("Hist.Treeview.Heading",
-                        background=self.SURF, foreground=self.BLUE,
-                        font=("Segoe UI", 9, "bold"), relief="flat")
+        style.configure("Hist.Treeview.Heading", background=self.CARD, foreground=self.SUB,
+                        font=("Segoe UI", 9, "bold"), relief="flat", padding=[6, 7])
+        style.map("Hist.Treeview.Heading", background=[("active", self.SURF)])
         style.map("Hist.Treeview",
-                  background=[("selected", self.BLUE)],
-                  foreground=[("selected", self.BG)])
-        style.configure("Hist.Vertical.TScrollbar",
-                        background=self.SURF, troughcolor=self.PANEL,
-                        arrowcolor=self.MUTED, borderwidth=0)
+                  background=[("selected", self.SURF)],
+                  foreground=[("selected", self.BLUE)])
+        style.configure("Hist.Vertical.TScrollbar", background=self.SURF,
+                        troughcolor=self.BG, arrowcolor=self.MUTED, borderwidth=0)
 
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill="both", expand=True)
+        self.notebook.pack(fill="both", expand=True, padx=6, pady=6)
 
         self.tab_main = tk.Frame(self.notebook, bg=self.BG)
         self.tab_hist = tk.Frame(self.notebook, bg=self.BG)
@@ -445,166 +534,140 @@ class App:
         self._build_main_tab()
         self._build_history_tab()
 
+    def _card(self, parent, accent=None, expand=False, pady=(0, 12)):
+        """Карточка-секция: лёгкая рамка, опциональная акцентная полоса слева."""
+        card = tk.Frame(parent, bg=self.CARD,
+                        highlightbackground=self.BORDER, highlightthickness=1)
+        card.pack(fill="both" if expand else "x", expand=expand, padx=18, pady=pady)
+        if accent:
+            tk.Frame(card, bg=accent, width=3).pack(side="left", fill="y")
+        inner = tk.Frame(card, bg=self.CARD)
+        inner.pack(side="left", fill="both", expand=True, padx=16, pady=13)
+        return inner
+
+    def _sec(self, parent):
+        lbl = tk.Label(parent, bg=self.CARD, fg=self.MUTED,
+                       font=("Segoe UI", 8, "bold"))
+        lbl.pack(anchor="w", pady=(0, 9))
+        return lbl
+
     def _build_main_tab(self):
         p = self.tab_main
 
-        # ── Топ-бар: заголовок + переключатель языка ─────────────────────────
-        top = tk.Frame(p, bg=self.BG)
-        top.pack(fill="x", padx=16, pady=(14, 0))
+        # ── Шапка: акцент + заголовок + сегментированный язык ────────────────
+        head = tk.Frame(p, bg=self.BG)
+        head.pack(fill="x", padx=18, pady=(16, 12))
 
-        left = tk.Frame(top, bg=self.BG)
-        left.pack(side="left", fill="x", expand=True)
-
-        self.lbl_title = tk.Label(left, bg=self.BG, fg=self.BLUE,
-                                  font=("Segoe UI", 16, "bold"))
+        title_box = tk.Frame(head, bg=self.BG)
+        title_box.pack(side="left")
+        tk.Frame(title_box, bg=self.BLUE, width=4, height=40).pack(side="left", padx=(0, 12))
+        tbox = tk.Frame(title_box, bg=self.BG)
+        tbox.pack(side="left")
+        self.lbl_title = tk.Label(tbox, bg=self.BG, fg=self.TEXT,
+                                  font=("Segoe UI Semibold", 17, "bold"))
         self.lbl_title.pack(anchor="w")
-        self.lbl_subtitle = tk.Label(left, bg=self.BG, fg=self.MUTED,
+        self.lbl_subtitle = tk.Label(tbox, bg=self.BG, fg=self.MUTED,
                                      font=("Segoe UI", 9))
         self.lbl_subtitle.pack(anchor="w")
 
-        lang_frame = tk.Frame(top, bg=self.BG)
-        lang_frame.pack(side="right", anchor="n", pady=(4, 0))
+        seg = tk.Frame(head, bg=self.SURF, highlightbackground=self.BORDER,
+                       highlightthickness=1)
+        seg.pack(side="right", anchor="n", pady=(3, 0))
+        self.btn_ru = RoundedButton(seg, text="RU", width=42, height=26, radius=7,
+                                    bg=self.SURF, fg=self.MUTED, hover=self.SURF2,
+                                    page_bg=self.SURF, command=lambda: self._set_lang("ru"))
+        self.btn_ru.pack(side="left", padx=2, pady=2)
+        self.btn_en = RoundedButton(seg, text="EN", width=42, height=26, radius=7,
+                                    bg=self.SURF, fg=self.MUTED, hover=self.SURF2,
+                                    page_bg=self.SURF, command=lambda: self._set_lang("en"))
+        self.btn_en.pack(side="left", padx=2, pady=2)
 
-        self.btn_ru = tk.Button(lang_frame, text="RU", width=3,
-                                relief="flat", cursor="hand2",
-                                font=("Segoe UI", 9, "bold"),
-                                command=lambda: self._set_lang("ru"))
-        self.btn_ru.pack(side="left")
-        tk.Label(lang_frame, text="|", bg=self.BG, fg=self.MUTED).pack(side="left")
-        self.btn_en = tk.Button(lang_frame, text="EN", width=3,
-                                relief="flat", cursor="hand2",
-                                font=("Segoe UI", 9, "bold"),
-                                command=lambda: self._set_lang("en"))
-        self.btn_en.pack(side="left")
+        # ── Карточка «Сейчас раздаётся» ──────────────────────────────────────
+        cur = self._card(p, accent=self.GREEN, pady=(0, 12))
+        cur_row = tk.Frame(cur, bg=self.CARD)
+        cur_row.pack(fill="x")
+        self.btn_cur = RoundedButton(cur_row, text="⟳", width=42, height=34, radius=9,
+                                     bg=self.SURF, fg=self.TEXT, hover=self.SURF2,
+                                     page_bg=self.CARD, font=("Segoe UI", 13, "bold"),
+                                     command=self._on_refresh_current)
+        self.btn_cur.pack(side="right")
+        self.lbl_cur_dot = tk.Label(cur_row, text="●", bg=self.CARD, fg=self.MUTED,
+                                    font=("Segoe UI", 12))
+        self.lbl_cur_dot.pack(side="left", padx=(0, 10))
+        cur_txt = tk.Frame(cur_row, bg=self.CARD)
+        cur_txt.pack(side="left", fill="x", expand=True)
+        self.lbl_cur_title = tk.Label(cur_txt, bg=self.CARD, fg=self.SUB,
+                                      font=("Segoe UI", 8, "bold"))
+        self.lbl_cur_title.pack(anchor="w")
+        self.lbl_cur_val = tk.Label(cur_txt, bg=self.CARD, fg=self.MUTED,
+                                    font=("Segoe UI", 10), anchor="w", justify="left")
+        self.lbl_cur_val.pack(anchor="w")
 
-        # ── Баннер «Сейчас раздаётся» (exit-IP активного прокси + гео) ───────
-        cur = tk.Frame(p, bg=self.PANEL)
-        cur.pack(fill="x", padx=16, pady=(12, 0))
-
-        self.btn_cur = tk.Button(
-            cur, text="⟳", width=3,
-            bg=self.SURF, fg=self.TEXT,
-            font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2",
-            activebackground="#45475a", activeforeground=self.TEXT,
-            command=self._on_refresh_current,
-        )
-        self.btn_cur.pack(side="right", padx=6, pady=5)
-
-        self.lbl_cur_title = tk.Label(cur, bg=self.PANEL, fg=self.BLUE,
-                                      font=("Segoe UI", 9, "bold"))
-        self.lbl_cur_title.pack(side="left", padx=(10, 6), pady=6)
-
-        self.lbl_cur_val = tk.Label(cur, bg=self.PANEL, fg=self.MUTED,
-                                    font=("Segoe UI", 9), anchor="w", justify="left")
-        self.lbl_cur_val.pack(side="left", pady=6, fill="x", expand=True)
-
-        # ── IP Ubuntu ────────────────────────────────────────────────────────
-        row1 = tk.Frame(p, bg=self.BG)
-        row1.pack(fill="x", padx=16, pady=(14, 4))
-
-        self.lbl_ip = tk.Label(row1, bg=self.BG, fg=self.TEXT,
-                               font=("Segoe UI", 10), width=11, anchor="w")
+        # ── Карточка «Сервер» ────────────────────────────────────────────────
+        srv = self._card(p, accent=self.BLUE)
+        self.lbl_sec_server = self._sec(srv)
+        srv_row = tk.Frame(srv, bg=self.CARD)
+        srv_row.pack(fill="x")
+        self.lbl_ip = tk.Label(srv_row, bg=self.CARD, fg=self.SUB,
+                               font=("Segoe UI", 9), width=11, anchor="w")
         self.lbl_ip.pack(side="left")
-
         self.ip_var = tk.StringVar(value="192.168.1.96")
-        self._entry(row1, self.ip_var, width=20).pack(side="left", padx=(4, 0))
+        self._entry(srv_row, self.ip_var, width=18).pack(side="left", padx=(4, 12), ipady=4)
+        self.btn_server = RoundedButton(srv_row, text="", width=170, height=34,
+                                        bg=self.SURF, fg=self.TEXT, hover=self.SURF2,
+                                        page_bg=self.CARD, command=self._on_server_check)
+        self.btn_server.pack(side="left")
 
-        self.btn_server = tk.Button(
-            row1, text="",
-            bg=self.SURF, fg=self.TEXT,
-            font=("Segoe UI", 9), relief="flat", cursor="hand2",
-            activebackground="#45475a", activeforeground=self.TEXT,
-            command=self._on_server_check,
-        )
-        self.btn_server.pack(side="left", padx=(10, 0))
-
-        # ── Строка прокси ────────────────────────────────────────────────────
-        row2 = tk.Frame(p, bg=self.BG)
-        row2.pack(fill="x", padx=16, pady=4)
-
-        self.lbl_proxy = tk.Label(row2, bg=self.BG, fg=self.TEXT,
-                                  font=("Segoe UI", 10), width=11, anchor="w")
-        self.lbl_proxy.pack(side="left")
-
+        # ── Карточка «Прокси» ────────────────────────────────────────────────
+        prx = self._card(p, accent=self.MAUVE)
+        self.lbl_sec_proxy = self._sec(prx)
         self.proxy_var = tk.StringVar()
-        proxy_entry = self._entry(row2, self.proxy_var, width=55)
-        proxy_entry.pack(side="left", padx=(4, 0), fill="x", expand=True)
-        proxy_entry.focus()
-        proxy_entry.bind("<Control-v>", self._paste_proxy)
-        proxy_entry.bind("<Control-V>", self._paste_proxy)
-
-        # ── Кнопки проверки прокси ────────────────────────────────────────────
-        row3 = tk.Frame(p, bg=self.BG)
-        row3.pack(fill="x", padx=16, pady=(2, 2))
-
-        self.btn_check = tk.Button(
-            row3, text="", width=18,
-            bg=self.SURF, fg=self.TEXT,
-            font=("Segoe UI", 9), relief="flat", cursor="hand2",
-            activebackground="#45475a", activeforeground=self.TEXT,
-            command=self._on_check,
-        )
+        pe = self._entry(prx, self.proxy_var, width=55)
+        pe.pack(fill="x", ipady=5)
+        pe.focus()
+        pe.bind("<Control-v>", self._paste_proxy)
+        pe.bind("<Control-V>", self._paste_proxy)
+        self.lbl_hint = tk.Label(prx, bg=self.CARD, fg=self.MUTED, font=("Segoe UI", 8))
+        self.lbl_hint.pack(anchor="w", pady=(7, 11))
+        btns = tk.Frame(prx, bg=self.CARD)
+        btns.pack(fill="x")
+        self.btn_check = RoundedButton(btns, text="", width=172, height=34,
+                                       bg=self.SURF, fg=self.TEXT, hover=self.SURF2,
+                                       page_bg=self.CARD, command=self._on_check)
         self.btn_check.pack(side="left")
-
-        self.btn_udp = tk.Button(
-            row3, text="", width=18,
-            bg=self.SURF, fg=self.TEXT,
-            font=("Segoe UI", 9), relief="flat", cursor="hand2",
-            activebackground="#45475a", activeforeground=self.TEXT,
-            command=self._on_udp_check,
-        )
+        self.btn_udp = RoundedButton(btns, text="", width=150, height=34,
+                                     bg=self.SURF, fg=self.TEXT, hover=self.SURF2,
+                                     page_bg=self.CARD, command=self._on_udp_check)
         self.btn_udp.pack(side="left", padx=(8, 0))
-
-        # Кнопка «Проверить чистоту» (репутация через открытые базы + скорость)
-        self.btn_clean = tk.Button(
-            row3, text="", width=20,
-            bg=self.SURF, fg=self.TEXT,
-            font=("Segoe UI", 9), relief="flat", cursor="hand2",
-            activebackground="#45475a", activeforeground=self.TEXT,
-            command=self._on_clean_check,
-        )
+        self.btn_clean = RoundedButton(btns, text="", width=180, height=34,
+                                       bg=self.SURF, fg=self.TEXT, hover=self.SURF2,
+                                       page_bg=self.CARD, command=self._on_clean_check)
         self.btn_clean.pack(side="left", padx=(8, 0))
 
-        # ── Хинт формата ─────────────────────────────────────────────────────
-        row3b = tk.Frame(p, bg=self.BG)
-        row3b.pack(fill="x", padx=16, pady=(0, 6))
-
-        self.lbl_hint = tk.Label(row3b, bg=self.BG, fg=self.MUTED,
-                                 font=("Segoe UI", 8))
-        self.lbl_hint.pack(side="left")
-
-        # ── Кнопка «Route» ───────────────────────────────────────────────────
-        self.btn_apply = tk.Button(
-            p, text="",
-            bg=self.BLUE, fg=self.BG,
-            font=("Segoe UI", 11, "bold"),
-            relief="flat", cursor="hand2",
-            activebackground="#74c7ec", activeforeground=self.BG,
-            command=self._on_apply, padx=10, pady=7,
-        )
-        self.btn_apply.pack(pady=(4, 6))
+        # ── Кнопка Route (акцентная, во всю ширину) ──────────────────────────
+        route_box = tk.Frame(p, bg=self.BG)
+        route_box.pack(fill="x", padx=18, pady=(0, 8))
+        self.btn_apply = RoundedButton(route_box, text="", height=46, radius=12,
+                                       bg=self.BLUE, fg=self.BG, hover=self.SAPPH,
+                                       page_bg=self.BG, font=("Segoe UI", 12, "bold"),
+                                       command=self._on_apply)
+        self.btn_apply.pack(fill="x")
 
         # ── Статус ───────────────────────────────────────────────────────────
         self.status_var = tk.StringVar()
-        self.status_lbl = tk.Label(
-            p, textvariable=self.status_var,
-            bg=self.BG, fg=self.TEXT, font=("Segoe UI", 10, "bold")
-        )
-        self.status_lbl.pack()
+        self.status_lbl = tk.Label(p, textvariable=self.status_var, bg=self.BG,
+                                   fg=self.TEXT, font=("Segoe UI", 10, "bold"))
+        self.status_lbl.pack(pady=(0, 8))
 
-        # ── Лог ──────────────────────────────────────────────────────────────
-        log_frame = tk.Frame(p, bg=self.BG)
-        log_frame.pack(fill="both", expand=True, padx=16, pady=(6, 14))
-
-        self.lbl_log = tk.Label(log_frame, bg=self.BG, fg=self.MUTED,
-                                font=("Segoe UI", 8))
-        self.lbl_log.pack(anchor="w")
-
+        # ── Карточка «Лог» ───────────────────────────────────────────────────
+        log_card = self._card(p, accent=self.SURF2, expand=True, pady=(0, 16))
+        self.lbl_log = tk.Label(log_card, bg=self.CARD, fg=self.MUTED,
+                                font=("Segoe UI", 8, "bold"))
+        self.lbl_log.pack(anchor="w", pady=(0, 6))
         self.log = scrolledtext.ScrolledText(
-            log_frame, bg=self.PANEL, fg=self.TEXT,
-            font=("Consolas", 9), insertbackground=self.TEXT,
-            state="disabled", relief="flat",
-        )
+            log_card, bg=self.PANEL, fg=self.TEXT, font=("Consolas", 9),
+            insertbackground=self.TEXT, state="disabled", relief="flat",
+            borderwidth=0, highlightthickness=0)
         self.log.pack(fill="both", expand=True)
         self.log.tag_config("ok",   foreground=self.GREEN)
         self.log.tag_config("err",  foreground=self.RED)
@@ -614,70 +677,76 @@ class App:
     def _build_history_tab(self):
         p = self.tab_hist
 
-        # ── Таблица ───────────────────────────────────────────────────────────
-        tree_frame = tk.Frame(p, bg=self.BG)
-        tree_frame.pack(fill="both", expand=True, padx=12, pady=(10, 4))
+        # ── Шапка ─────────────────────────────────────────────────────────────
+        head = tk.Frame(p, bg=self.BG)
+        head.pack(fill="x", padx=18, pady=(16, 8))
+        tk.Frame(head, bg=self.MAUVE, width=4, height=26).pack(side="left", padx=(0, 12))
+        self.lbl_hist_title = tk.Label(head, bg=self.BG, fg=self.TEXT,
+                                       font=("Segoe UI Semibold", 14, "bold"))
+        self.lbl_hist_title.pack(side="left")
+
+        # ── Карточка с таблицей ───────────────────────────────────────────────
+        card = tk.Frame(p, bg=self.CARD, highlightbackground=self.BORDER,
+                        highlightthickness=1)
+        card.pack(fill="both", expand=True, padx=18, pady=(0, 10))
+        tree_frame = tk.Frame(card, bg=self.CARD)
+        tree_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         sb = ttk.Scrollbar(tree_frame, orient="vertical",
                            style="Hist.Vertical.TScrollbar")
         self.hist_tree = ttk.Treeview(
-            tree_frame,
-            style="Hist.Treeview",
+            tree_frame, style="Hist.Treeview",
             columns=("server", "geo", "isp", "date", "status"),
-            show="headings",
-            selectmode="browse",
-            yscrollcommand=sb.set,
+            show="headings", selectmode="browse", yscrollcommand=sb.set,
         )
         sb.config(command=self.hist_tree.yview)
         sb.pack(side="right", fill="y")
         self.hist_tree.pack(fill="both", expand=True)
 
         self.hist_tree.column("server", width=160, minwidth=120, anchor="w")
-        self.hist_tree.column("geo",    width=185, minwidth=140, anchor="w")
-        self.hist_tree.column("isp",    width=160, minwidth=100, anchor="w")
-        self.hist_tree.column("date",   width=90,  minwidth=80,  anchor="center")
-        self.hist_tree.column("status", width=36,  minwidth=36,  anchor="center")
+        self.hist_tree.column("geo",    width=190, minwidth=140, anchor="w")
+        self.hist_tree.column("isp",    width=170, minwidth=100, anchor="w")
+        self.hist_tree.column("date",   width=92,  minwidth=80,  anchor="center")
+        self.hist_tree.column("status", width=40,  minwidth=40,  anchor="center")
 
         self.hist_tree.tag_configure("ok",      foreground=self.GREEN)
-        self.hist_tree.tag_configure("warn",     foreground=self.YELLOW)
-        self.hist_tree.tag_configure("fail",     foreground=self.RED)
-        self.hist_tree.tag_configure("unknown",  foreground=self.MUTED)
+        self.hist_tree.tag_configure("warn",    foreground=self.YELLOW)
+        self.hist_tree.tag_configure("fail",    foreground=self.RED)
+        self.hist_tree.tag_configure("unknown", foreground=self.MUTED)
 
         self.hist_tree.bind("<Double-1>", lambda _e: self._hist_load())
 
         # ── Кнопки действий ──────────────────────────────────────────────────
         btn_frame = tk.Frame(p, bg=self.BG)
-        btn_frame.pack(fill="x", padx=12, pady=(2, 4))
+        btn_frame.pack(fill="x", padx=18, pady=(0, 6))
 
-        btn_cfg = dict(bg=self.SURF, fg=self.TEXT, font=("Segoe UI", 9),
-                       relief="flat", cursor="hand2",
-                       activebackground="#45475a", activeforeground=self.TEXT,
-                       width=14)
-
-        self.btn_hist_load = tk.Button(btn_frame, **btn_cfg,
-                                       command=self._hist_load)
+        self.btn_hist_load = RoundedButton(btn_frame, text="", width=142, height=34,
+                                           bg=self.SURF, fg=self.TEXT, hover=self.SURF2,
+                                           page_bg=self.BG, command=self._hist_load)
         self.btn_hist_load.pack(side="left")
-
-        self.btn_hist_check = tk.Button(btn_frame, **btn_cfg,
-                                        command=self._hist_check)
+        self.btn_hist_check = RoundedButton(btn_frame, text="", width=142, height=34,
+                                            bg=self.SURF, fg=self.TEXT, hover=self.SURF2,
+                                            page_bg=self.BG, command=self._hist_check)
         self.btn_hist_check.pack(side="left", padx=(8, 0))
-
-        self.btn_hist_delete = tk.Button(btn_frame, **btn_cfg,
-                                         command=self._hist_delete)
+        self.btn_hist_delete = RoundedButton(btn_frame, text="", width=142, height=34,
+                                             bg=self.SURF, fg=self.RED, hover=self.SURF2,
+                                             page_bg=self.BG, command=self._hist_delete)
         self.btn_hist_delete.pack(side="left", padx=(8, 0))
 
         # ── Подсказка ─────────────────────────────────────────────────────────
         self.lbl_hist_hint = tk.Label(p, bg=self.BG, fg=self.MUTED,
                                       font=("Segoe UI", 8))
-        self.lbl_hist_hint.pack(pady=(0, 8))
+        self.lbl_hist_hint.pack(padx=18, anchor="w", pady=(0, 12))
 
         self._refresh_hist_table()
 
     def _entry(self, parent, var, width=30):
         return tk.Entry(
             parent, textvariable=var, width=width,
-            bg=self.SURF, fg=self.TEXT, insertbackground=self.TEXT,
-            relief="flat", font=("Consolas", 10),
+            bg=self.PANEL, fg=self.TEXT, insertbackground=self.BLUE,
+            relief="flat", font=("Consolas", 11),
+            highlightthickness=1, highlightbackground=self.BORDER,
+            highlightcolor=self.BLUE,
         )
 
     # ── Язык ──────────────────────────────────────────────────────────────────
@@ -692,36 +761,36 @@ class App:
         self.lbl_title.config(text="JackalRouter")
         self.lbl_subtitle.config(text=t["subtitle"])
         self.lbl_ip.config(text=t["ip_label"])
-        self.lbl_proxy.config(text=t["proxy_label"])
         self.lbl_hint.config(text=t["hint"])
-        self.btn_apply.config(text=t["btn_apply"])
-        self.btn_check.config(text=t["btn_check"])
-        self.btn_udp.config(text=t["btn_udp"])
-        self.btn_clean.config(text=t["btn_clean"])
-        self.btn_server.config(text=t["btn_server"])
+        self.lbl_sec_server.config(text=t["sec_server"])
+        self.lbl_sec_proxy.config(text=t["sec_proxy"])
         self.lbl_log.config(text=t["log_header"])
         self.lbl_cur_title.config(text=t["cur_label"])
+        self.btn_apply.config_text(t["btn_apply"].strip())
+        self.btn_check.config_text(t["btn_check"])
+        self.btn_udp.config_text(t["btn_udp"])
+        self.btn_clean.config_text(t["btn_clean"])
+        self.btn_server.config_text(t["btn_server"])
         if not getattr(self, "_cur_set", False):
             self.lbl_cur_val.config(text=t["cur_none"], fg=self.MUTED)
 
-        active_bg, active_fg     = self.BLUE, self.BG
-        inactive_bg, inactive_fg = self.SURF, self.MUTED
+        # сегментированный переключатель языка
         if self.lang == "ru":
-            self.btn_ru.config(bg=active_bg,   fg=active_fg)
-            self.btn_en.config(bg=inactive_bg, fg=inactive_fg)
+            self.btn_ru.set_colors(bg=self.BLUE, fg=self.BG, hover=self.SAPPH)
+            self.btn_en.set_colors(bg=self.SURF, fg=self.MUTED, hover=self.SURF2)
         else:
-            self.btn_en.config(bg=active_bg,   fg=active_fg)
-            self.btn_ru.config(bg=inactive_bg, fg=inactive_fg)
+            self.btn_en.set_colors(bg=self.BLUE, fg=self.BG, hover=self.SAPPH)
+            self.btn_ru.set_colors(bg=self.SURF, fg=self.MUTED, hover=self.SURF2)
 
         if not self.status_var.get():
-            self.status_var.set(t["ready"])
+            self._status(t["ready"], self.MUTED)
 
         self.notebook.tab(0, text=t["tab_main"])
         self.notebook.tab(1, text=t["tab_history"])
-
-        self.btn_hist_load.config(text=t["hist_load"])
-        self.btn_hist_check.config(text=t["hist_check"])
-        self.btn_hist_delete.config(text=t["hist_delete"])
+        self.lbl_hist_title.config(text=t["tab_history"])
+        self.btn_hist_load.config_text(t["hist_load"])
+        self.btn_hist_check.config_text(t["hist_check"])
+        self.btn_hist_delete.config_text(t["hist_delete"])
         self.lbl_hist_hint.config(text=t["hist_dblclick"])
         for col, key in [("server", "hist_col_proxy"), ("geo", "hist_col_geo"),
                          ("isp",    "hist_col_isp"),   ("date", "hist_col_date"),
@@ -751,20 +820,15 @@ class App:
         self.log.config(state="disabled")
 
     def _status(self, msg: str, color: str = None):
-        self.status_var.set(msg)
+        self.status_var.set(f"●  {msg}")
         self.status_lbl.config(fg=color or self.TEXT)
 
     def _set_buttons(self, enabled: bool):
-        state = "normal" if enabled else "disabled"
-        self.btn_apply.config(state=state)
-        self.btn_check.config(state=state)
-        self.btn_udp.config(state=state)
-        self.btn_clean.config(state=state)
-        self.btn_server.config(state=state)
-        self.btn_cur.config(state=state)
-        self.btn_hist_load.config(state=state)
-        self.btn_hist_check.config(state=state)
-        self.btn_hist_delete.config(state=state)
+        st = "normal" if enabled else "disabled"
+        for b in (self.btn_apply, self.btn_check, self.btn_udp, self.btn_clean,
+                  self.btn_server, self.btn_cur, self.btn_hist_load,
+                  self.btn_hist_check, self.btn_hist_delete):
+            b.set_state(st)
 
     # ── Применить прокси ──────────────────────────────────────────────────────
 
@@ -1136,14 +1200,15 @@ class App:
     def _set_current(self, text: str, color: str = None, mark: bool = True):
         self._cur_set = mark
         self.lbl_cur_val.config(text=text, fg=color or self.MUTED)
-        self.btn_cur.config(state="normal")
+        self.lbl_cur_dot.config(fg=color or self.MUTED)
+        self.btn_cur.set_state("normal")
 
     def _on_refresh_current(self):
         ubuntu_ip = self.ip_var.get().strip()
         if not ubuntu_ip:
             self._set_current(self._("cur_err", self._("err_no_ip")), self.RED)
             return
-        self.btn_cur.config(state="disabled")
+        self.btn_cur.set_state("disabled")
         self._set_current(self._("cur_loading"), self.YELLOW)
         threading.Thread(target=self._refresh_current_worker,
                          args=(ubuntu_ip,), daemon=True).start()
