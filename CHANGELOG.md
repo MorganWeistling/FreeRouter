@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.8.1] - 2026-06-26
+- Hardened: explicit Linux capabilities in `sing-box.service` (`CAP_NET_ADMIN`, `CAP_NET_RAW`, `CAP_NET_BIND_SERVICE`) via `AmbientCapabilities` + `CapabilityBoundingSet`. Guarantees UDP/QUIC TProxy works (same path as TCP) even if sing-box is not run as root, and applies least-privilege instead of full root caps.
+- Verified: UDP TProxy redirect rule matches TCP (all UDP, incl. QUIC :443, sent to sing-box), TPROXY kernel modules loaded, policy routing (fwmark→table 100) intact, and the active proxy's SOCKS5 UDP ASSOCIATE relay forwards. Conclusion: the Ubuntu UDP/Android path is correct; "nothing loads" is caused by the upstream proxy stalling on bulk transfer.
+
 ## [1.8] - 2026-06-26
 - Fixed: Russian text leaking into the client log in EN mode. Server endpoints (/proxy_health, /current_ip) now return a machine-readable `error_code` with English text; the client localizes errors by code (handshake, auth, connect, timeout, TLS, no-proxy, geo).
 
