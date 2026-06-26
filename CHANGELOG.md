@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.7] - 2026-06-26
+- Added: server `GET /proxy_health` endpoint — honest bulk throughput test of the active proxy via the real path (downloads 512 KB from Ubuntu through the proxy over SOCKS5+TLS). Detects "dead" proxies that accept connections and small requests but stall after ~17 KB on bulk transfer.
+- Added: "Bulk test" (⚡) button in the client banner — runs the server-side health test and reports CLEAN/STALLED with downloaded KB, time and KB/s. Catches proxies the client-side speed test misses (client tests a different network path).
+
 ## [1.6] - 2026-06-26
 - Changed: Redesigned client UI — modern card-based dark layout (Catppuccin), custom rounded Canvas buttons with hover states, accent strips, segmented RU/EN language toggle, section cards (Server / Proxy / Log), refined typography and spacing. No new dependencies.
 

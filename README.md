@@ -165,9 +165,10 @@ measured speed; you can reload, re-check or delete entries there.
 The server exposes a simple REST API on port `8000`:
 
 ```
-POST /set_proxy    {"proxy_string": "ip:port:user:pass"}
-GET  /status       → {"sing_box": "active", "dnsmasq": "active", "iptables": "ok", "proxy": "1.2.3.4:1080"}
-GET  /current_ip   → {"ok": true, "exit_ip": "5.6.7.8", "countryCode": "US", "city": "...", "isp": "..."}
+POST /set_proxy     {"proxy_string": "ip:port:user:pass"}
+GET  /status        → {"sing_box": "active", "dnsmasq": "active", "iptables": "ok", "proxy": "1.2.3.4:1080"}
+GET  /current_ip    → {"ok": true, "exit_ip": "5.6.7.8", "countryCode": "US", "city": "...", "isp": "..."}
+GET  /proxy_health  → {"ok": true, "stalled": false, "got_bytes": 524288, "elapsed": 2.1, "kbps": 243.0}
 ```
 
 ---
@@ -331,9 +332,10 @@ IP сам (по сохранённой учётке прокси).
 Сервер слушает на порту `8000`:
 
 ```
-POST /set_proxy    {"proxy_string": "ip:port:user:pass"}
-GET  /status       → {"sing_box": "active", "dnsmasq": "active", "iptables": "ok", "proxy": "1.2.3.4:1080"}
-GET  /current_ip   → {"ok": true, "exit_ip": "5.6.7.8", "countryCode": "US", "city": "...", "isp": "..."}
+POST /set_proxy     {"proxy_string": "ip:port:user:pass"}
+GET  /status        → {"sing_box": "active", "dnsmasq": "active", "iptables": "ok", "proxy": "1.2.3.4:1080"}
+GET  /current_ip    → {"ok": true, "exit_ip": "5.6.7.8", "countryCode": "US", "city": "...", "isp": "..."}
+GET  /proxy_health  → {"ok": true, "stalled": false, "got_bytes": 524288, "elapsed": 2.1, "kbps": 243.0}
 ```
 
 ### Управление сервисом

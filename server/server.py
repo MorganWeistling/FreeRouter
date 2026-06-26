@@ -10,6 +10,8 @@ import json
 import re
 import os
 import socket
+import ssl
+import time
 import logging
 from typing import Tuple
 from fastapi import FastAPI, HTTPException
@@ -261,6 +263,98 @@ def http_get_via_socks(host: str, port: int, user: str, password: str,
         s.close()
 
 
+def socks5_connect(host: str, port: int, user: str, password: str,
+                   target_host: str, target_port: int, timeout: int = 12) -> socket.socket:
+    """SOCKS5 рукопожатие + CONNECT к target. Возвращает открытый сокет."""
+    s = socket.create_connection((host, port), timeout=timeout)
+    s.settimeout(timeout)
+    has_auth = bool(user and password)
+    methods = b"\x02" if has_auth else b"\x00"
+    s.sendall(b"\x05" + bytes([len(methods)]) + methods)
+    resp = s.recv(2)
+    if len(resp) < 2 or resp[0] != 5:
+        s.close(); raise RuntimeError("некорректный SOCKS5-ответ")
+    if resp[1] == 0xFF:
+        s.close(); raise RuntimeError("прокси отверг методы авторизации")
+    if resp[1] == 2:
+        u, p = user.encode(), password.encode()
+        s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(p)]) + p)
+        resp = s.recv(2)
+        if len(resp) < 2 or resp[1] != 0:
+            s.close(); raise RuntimeError("ошибка авторизации на прокси")
+    d = target_host.encode()
+    s.sendall(b"\x05\x01\x00\x03" + bytes([len(d)]) + d + target_port.to_bytes(2, "big"))
+    resp = s.recv(10)
+    if len(resp) < 2 or resp[1] != 0:
+        s.close(); raise RuntimeError("прокси не смог установить CONNECT")
+    return s
+
+
+# Параметры health-теста пропускной способности
+HEALTH_HOST  = "speed.cloudflare.com"
+HEALTH_BYTES = 524288        # 512 КБ — реальная bulk-передача (мёртвый прокси встаёт ~17 КБ)
+HEALTH_TOTAL_TIMEOUT = 25    # общий лимит на скачивание
+HEALTH_IDLE_TIMEOUT  = 8     # если прокси не шлёт данные дольше — считаем «затык»
+
+
+def proxy_health_test(proxy: dict) -> dict:
+    """Качает HEALTH_BYTES через активный прокси (HTTPS, SOCKS5+TLS) и проверяет,
+    что данные реально докачались, а не встали после первого буфера.
+    Отличает рабочий прокси от «мёртвого», который отдаёт ~17 КБ и виснет."""
+    t0 = time.time()
+    raw = socks5_connect(proxy["ip"], proxy["port"], proxy["user"],
+                         proxy["password"], HEALTH_HOST, 443, timeout=12)
+    ctx = ssl.create_default_context()
+    s = ctx.wrap_socket(raw, server_hostname=HEALTH_HOST)
+    try:
+        req = (f"GET /__down?bytes={HEALTH_BYTES} HTTP/1.1\r\n"
+               f"Host: {HEALTH_HOST}\r\n"
+               f"User-Agent: JackalRouter\r\n"
+               f"Accept: */*\r\nConnection: close\r\n\r\n")
+        s.sendall(req.encode())
+        s.settimeout(HEALTH_IDLE_TIMEOUT)
+        buf = b""
+        header_done = False
+        body = 0
+        stalled = False
+        while True:
+            if time.time() - t0 > HEALTH_TOTAL_TIMEOUT:
+                stalled = True
+                break
+            try:
+                chunk = s.recv(65536)
+            except socket.timeout:
+                stalled = True          # данные перестали идти — прокси завис
+                break
+            if not chunk:
+                break                   # EOF (Connection: close) — докачали
+            if not header_done:
+                buf += chunk
+                sep = buf.find(b"\r\n\r\n")
+                if sep >= 0:
+                    header_done = True
+                    body += len(buf) - (sep + 4)
+            else:
+                body += len(chunk)
+            if body >= HEALTH_BYTES:
+                break
+        elapsed = time.time() - t0
+        ok = (body >= HEALTH_BYTES * 0.95) and not stalled
+        return {
+            "ok":         ok,
+            "stalled":    stalled,
+            "got_bytes":  body,
+            "want_bytes": HEALTH_BYTES,
+            "elapsed":    round(elapsed, 2),
+            "kbps":       round(body / 1024 / elapsed, 1) if elapsed > 0 else 0,
+        }
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
@@ -357,6 +451,25 @@ async def current_ip():
             "city":        data.get("city"),
             "isp":         data.get("isp"),
         }
+    except Exception as e:
+        return {"ok": False, "proxy": proxy_str, "error": str(e)}
+
+
+@app.get("/proxy_health")
+def proxy_health():
+    """Честный тест пропускной способности активного прокси РЕАЛЬНЫМ путём
+    (с Ubuntu через прокси). Качает 512 КБ и проверяет, что докачалось.
+    Синхронный def — FastAPI выполнит его в threadpool, не блокируя сервер."""
+    try:
+        proxy = read_active_proxy()
+    except Exception as e:
+        return {"ok": False, "error": f"прокси не задан: {e}"}
+
+    proxy_str = f"{proxy['ip']}:{proxy['port']}"
+    try:
+        r = proxy_health_test(proxy)
+        r["proxy"] = proxy_str
+        return r
     except Exception as e:
         return {"ok": False, "proxy": proxy_str, "error": str(e)}
 

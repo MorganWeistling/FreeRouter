@@ -189,6 +189,15 @@ S = {
         "cur_err":        "не удалось определить ({})",
         "cur_no_proxy":   "прокси не задан — нажмите Route",
         "cur_partial":    "{} активен (вставьте этот прокси в поле для гео)",
+        "btn_health":     "⚡  Тест канала",
+        "health_checking": "Тест пропускной через сервер…",
+        "health_start":   "→  GET /proxy_health  (качаю 512 КБ через активный прокси с Ubuntu)",
+        "health_ok":      "✓ Канал жив: докачано {} КБ за {}s ({} КБ/с) — bulk проходит",
+        "health_stall":   "✗ Прокси затыкается: отдал лишь {} КБ и встал ({}s). Мёртвый прокси — меняйте.",
+        "health_noproxy": "Прокси не задан на сервере — нажмите Route",
+        "health_err":     "✗ Тест не выполнен: {}",
+        "health_st_ok":   "Канал работает ✓",
+        "health_st_fail": "Прокси не тянет ✗",
         "sec_server":     "СЕРВЕР UBUNTU",
         "sec_proxy":      "SOCKS5 ПРОКСИ",
         "ip_label":       "IP Ubuntu:",
@@ -283,6 +292,15 @@ S = {
         "cur_err":        "could not determine ({})",
         "cur_no_proxy":   "no proxy set — click Route",
         "cur_partial":    "{} active (paste this proxy into the field for geo)",
+        "btn_health":     "⚡  Bulk test",
+        "health_checking": "Bulk test via server…",
+        "health_start":   "→  GET /proxy_health  (downloading 512 KB through the active proxy from Ubuntu)",
+        "health_ok":      "✓ Channel alive: {} KB in {}s ({} KB/s) — bulk works",
+        "health_stall":   "✗ Proxy stalls: only {} KB then froze ({}s). Dead proxy — replace it.",
+        "health_noproxy": "No proxy set on server — click Route",
+        "health_err":     "✗ Test failed: {}",
+        "health_st_ok":   "Channel works ✓",
+        "health_st_fail": "Proxy can't pull ✗",
         "sec_server":     "UBUNTU SERVER",
         "sec_proxy":      "SOCKS5 PROXY",
         "ip_label":       "Ubuntu IP:",
@@ -591,6 +609,10 @@ class App:
                                      page_bg=self.CARD, font=("Segoe UI", 13, "bold"),
                                      command=self._on_refresh_current)
         self.btn_cur.pack(side="right")
+        self.btn_health = RoundedButton(cur_row, text="", width=148, height=34,
+                                        bg=self.SURF, fg=self.YELLOW, hover=self.SURF2,
+                                        page_bg=self.CARD, command=self._on_health)
+        self.btn_health.pack(side="right", padx=(0, 8))
         self.lbl_cur_dot = tk.Label(cur_row, text="●", bg=self.CARD, fg=self.MUTED,
                                     font=("Segoe UI", 12))
         self.lbl_cur_dot.pack(side="left", padx=(0, 10))
@@ -771,6 +793,7 @@ class App:
         self.btn_udp.config_text(t["btn_udp"])
         self.btn_clean.config_text(t["btn_clean"])
         self.btn_server.config_text(t["btn_server"])
+        self.btn_health.config_text(t["btn_health"])
         if not getattr(self, "_cur_set", False):
             self.lbl_cur_val.config(text=t["cur_none"], fg=self.MUTED)
 
@@ -826,7 +849,7 @@ class App:
     def _set_buttons(self, enabled: bool):
         st = "normal" if enabled else "disabled"
         for b in (self.btn_apply, self.btn_check, self.btn_udp, self.btn_clean,
-                  self.btn_server, self.btn_cur, self.btn_hist_load,
+                  self.btn_server, self.btn_cur, self.btn_health, self.btn_hist_load,
                   self.btn_hist_check, self.btn_hist_delete):
             b.set_state(st)
 
@@ -1193,6 +1216,58 @@ class App:
         self._log(f"   {reason}", "err")
         self._log(self._("srv_hint"), "warn")
         self._status(self._("srv_st_down"), self.RED)
+        self._set_buttons(True)
+
+    # ── Тест канала: реальная пропускная активного прокси (через сервер) ───────
+
+    def _on_health(self):
+        ubuntu_ip = self.ip_var.get().strip()
+        if not ubuntu_ip:
+            self._log(self._("err_no_ip"), "err"); return
+        self._set_buttons(False)
+        self._status(self._("health_checking"), self.YELLOW)
+        self._log(self._("health_start"), "info")
+        threading.Thread(target=self._health_worker, args=(ubuntu_ip,), daemon=True).start()
+
+    def _health_worker(self, ubuntu_ip: str):
+        try:
+            # серверный тест занимает до ~25с — даём запас
+            r = requests.get(f"http://{ubuntu_ip}:{SERVER_PORT}/proxy_health", timeout=45)
+            r.raise_for_status()
+            self.root.after(0, self._on_health_result, r.json())
+        except requests.exceptions.ConnectionError:
+            self.root.after(0, self._on_health_fail,
+                            self._("log_conn_err", ubuntu_ip, SERVER_PORT))
+        except requests.exceptions.Timeout:
+            self.root.after(0, self._on_health_fail, self._("log_timeout", 45))
+        except Exception as e:
+            self.root.after(0, self._on_health_fail, str(e))
+
+    def _on_health_result(self, d: dict):
+        if not d.get("ok") and "error" in d and "got_bytes" not in d:
+            err = d.get("error", "?")
+            if "не задан" in err or "no proxy" in err:
+                self._log(self._("health_noproxy"), "warn")
+                self._status(self._("health_st_fail"), self.YELLOW)
+            else:
+                self._log(self._("health_err", err), "err")
+                self._status(self._("health_st_fail"), self.RED)
+            self._set_buttons(True)
+            return
+
+        got_kb  = round(d.get("got_bytes", 0) / 1024)
+        elapsed = d.get("elapsed", "?")
+        if d.get("ok"):
+            self._log(self._("health_ok", got_kb, elapsed, d.get("kbps", "?")), "ok")
+            self._status(self._("health_st_ok"), self.GREEN)
+        else:
+            self._log(self._("health_stall", got_kb, elapsed), "err")
+            self._status(self._("health_st_fail"), self.RED)
+        self._set_buttons(True)
+
+    def _on_health_fail(self, msg: str):
+        self._log(self._("health_err", msg), "err")
+        self._status(self._("health_st_fail"), self.RED)
         self._set_buttons(True)
 
     # ── Сейчас раздаётся: exit-IP активного прокси + гео ───────────────────────
