@@ -2,6 +2,9 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.8] - 2026-06-26
+- Fixed: Russian text leaking into the client log in EN mode. Server endpoints (/proxy_health, /current_ip) now return a machine-readable `error_code` with English text; the client localizes errors by code (handshake, auth, connect, timeout, TLS, no-proxy, geo).
+
 ## [1.7] - 2026-06-26
 - Added: server `GET /proxy_health` endpoint — honest bulk throughput test of the active proxy via the real path (downloads 512 KB from Ubuntu through the proxy over SOCKS5+TLS). Detects "dead" proxies that accept connections and small requests but stall after ~17 KB on bulk transfer.
 - Added: "Bulk test" (⚡) button in the client banner — runs the server-side health test and reports CLEAN/STALLED with downloaded KB, time and KB/s. Catches proxies the client-side speed test misses (client tests a different network path).

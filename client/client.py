@@ -198,6 +198,13 @@ S = {
         "health_err":     "✗ Тест не выполнен: {}",
         "health_st_ok":   "Канал работает ✓",
         "health_st_fail": "Прокси не тянет ✗",
+        "errc_no_proxy":        "прокси не задан на сервере",
+        "errc_socks_handshake": "прокси не отвечает по SOCKS5",
+        "errc_socks_auth":      "неверный логин/пароль прокси",
+        "errc_socks_connect":   "прокси не смог открыть соединение",
+        "errc_timeout":         "таймаут соединения с прокси",
+        "errc_tls":             "ошибка TLS через прокси",
+        "errc_geo":             "гео-сервис не ответил через прокси",
         "sec_server":     "СЕРВЕР UBUNTU",
         "sec_proxy":      "SOCKS5 ПРОКСИ",
         "ip_label":       "IP Ubuntu:",
@@ -301,6 +308,13 @@ S = {
         "health_err":     "✗ Test failed: {}",
         "health_st_ok":   "Channel works ✓",
         "health_st_fail": "Proxy can't pull ✗",
+        "errc_no_proxy":        "no proxy set on server",
+        "errc_socks_handshake": "proxy SOCKS5 handshake failed",
+        "errc_socks_auth":      "wrong proxy login/password",
+        "errc_socks_connect":   "proxy could not open connection",
+        "errc_timeout":         "proxy connection timeout",
+        "errc_tls":             "TLS error via proxy",
+        "errc_geo":             "geo service did not respond via proxy",
         "sec_server":     "UBUNTU SERVER",
         "sec_proxy":      "SOCKS5 PROXY",
         "ip_label":       "Ubuntu IP:",
@@ -833,6 +847,14 @@ class App:
         s = S[self.lang][key]
         return s.format(*args) if args else s
 
+    def _errmsg(self, d: dict) -> str:
+        """Локализует ошибку из ответа сервера по error_code; иначе — сырой текст."""
+        code = d.get("error_code")
+        key = f"errc_{code}" if code else None
+        if key and key in S[self.lang]:
+            return self._(key)
+        return d.get("error", "?")
+
     # ── Логирование ───────────────────────────────────────────────────────────
 
     def _log(self, msg: str, tag: str = "info"):
@@ -1244,13 +1266,12 @@ class App:
             self.root.after(0, self._on_health_fail, str(e))
 
     def _on_health_result(self, d: dict):
-        if not d.get("ok") and "error" in d and "got_bytes" not in d:
-            err = d.get("error", "?")
-            if "не задан" in err or "no proxy" in err:
+        if not d.get("ok") and "got_bytes" not in d:
+            if d.get("error_code") == "no_proxy":
                 self._log(self._("health_noproxy"), "warn")
                 self._status(self._("health_st_fail"), self.YELLOW)
             else:
-                self._log(self._("health_err", err), "err")
+                self._log(self._("health_err", self._errmsg(d)), "err")
                 self._status(self._("health_st_fail"), self.RED)
             self._set_buttons(True)
             return
@@ -1301,8 +1322,7 @@ class App:
                                     d.get("country"), d.get("city"), d.get("isp"))
                     return
                 # Сервер ответил, но прокси не задан / гео не получено
-                err = d.get("error", "?")
-                if "не задан" in err or "no proxy" in err or "tag=proxy" in err:
+                if d.get("error_code") == "no_proxy":
                     self.root.after(0, self._set_current,
                                     self._("cur_no_proxy"), self.YELLOW)
                     return

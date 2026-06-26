@@ -202,6 +202,18 @@ def parse_proxy(proxy_string: str) -> dict:
     )
 
 
+def err_code(msg: str) -> str:
+    """Классифицирует текст ошибки в машинный код — клиент локализует по нему."""
+    m = str(msg).lower()
+    if "no proxy" in m:                               return "no_proxy"
+    if "auth failed" in m:                            return "socks_auth"
+    if "auth methods" in m or "bad socks5" in m:      return "socks_handshake"
+    if "connect failed" in m:                         return "socks_connect"
+    if "timed out" in m or "timeout" in m:            return "timeout"
+    if "ssl" in m or "certificate" in m or "tls" in m: return "tls"
+    return "other"
+
+
 def read_active_proxy() -> dict:
     """Достаёт активный прокси (ip/port/user/pass) из текущего config.json sing-box."""
     conf = json.load(open(SINGBOX_CONF))
@@ -213,7 +225,7 @@ def read_active_proxy() -> dict:
                 "user":     ob.get("username", ""),
                 "password": ob.get("password", ""),
             }
-    raise RuntimeError("в config.json нет outbound с tag=proxy")
+    raise RuntimeError("no proxy outbound (tag=proxy) in config.json")
 
 
 def http_get_via_socks(host: str, port: int, user: str, password: str,
@@ -229,21 +241,21 @@ def http_get_via_socks(host: str, port: int, user: str, password: str,
         s.sendall(b"\x05" + bytes([len(methods)]) + methods)
         resp = s.recv(2)
         if len(resp) < 2 or resp[0] != 5:
-            raise RuntimeError("некорректный SOCKS5-ответ")
+            raise RuntimeError("bad SOCKS5 response")
         if resp[1] == 0xFF:
-            raise RuntimeError("прокси отверг методы авторизации")
+            raise RuntimeError("proxy refused auth methods")
         if resp[1] == 2:
             u, p = user.encode(), password.encode()
             s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(p)]) + p)
             resp = s.recv(2)
             if len(resp) < 2 or resp[1] != 0:
-                raise RuntimeError("ошибка авторизации на прокси")
+                raise RuntimeError("proxy auth failed")
         d = target_host.encode()
         s.sendall(b"\x05\x01\x00\x03" + bytes([len(d)]) + d
                   + target_port.to_bytes(2, "big"))
         resp = s.recv(10)
         if len(resp) < 2 or resp[1] != 0:
-            raise RuntimeError("прокси не смог установить CONNECT")
+            raise RuntimeError("proxy CONNECT failed")
         req = (f"GET {path} HTTP/1.0\r\n"
                f"Host: {target_host}\r\n"
                f"User-Agent: JackalRouter\r\n"
@@ -273,20 +285,20 @@ def socks5_connect(host: str, port: int, user: str, password: str,
     s.sendall(b"\x05" + bytes([len(methods)]) + methods)
     resp = s.recv(2)
     if len(resp) < 2 or resp[0] != 5:
-        s.close(); raise RuntimeError("некорректный SOCKS5-ответ")
+        s.close(); raise RuntimeError("bad SOCKS5 response")
     if resp[1] == 0xFF:
-        s.close(); raise RuntimeError("прокси отверг методы авторизации")
+        s.close(); raise RuntimeError("proxy refused auth methods")
     if resp[1] == 2:
         u, p = user.encode(), password.encode()
         s.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(p)]) + p)
         resp = s.recv(2)
         if len(resp) < 2 or resp[1] != 0:
-            s.close(); raise RuntimeError("ошибка авторизации на прокси")
+            s.close(); raise RuntimeError("proxy auth failed")
     d = target_host.encode()
     s.sendall(b"\x05\x01\x00\x03" + bytes([len(d)]) + d + target_port.to_bytes(2, "big"))
     resp = s.recv(10)
     if len(resp) < 2 or resp[1] != 0:
-        s.close(); raise RuntimeError("прокси не смог установить CONNECT")
+        s.close(); raise RuntimeError("proxy CONNECT failed")
     return s
 
 
@@ -428,7 +440,7 @@ async def current_ip():
     try:
         proxy = read_active_proxy()
     except Exception as e:
-        return {"ok": False, "error": f"прокси не задан: {e}"}
+        return {"ok": False, "error": f"no proxy configured: {e}", "error_code": "no_proxy"}
 
     proxy_str = f"{proxy['ip']}:{proxy['port']}"
     try:
@@ -439,7 +451,7 @@ async def current_ip():
         )
         data = json.loads(body.decode("utf-8", "ignore"))
         if data.get("status") != "success":
-            return {"ok": False, "proxy": proxy_str,
+            return {"ok": False, "proxy": proxy_str, "error_code": "geo",
                     "error": data.get("message", "geo lookup failed")}
         return {
             "ok":          True,
@@ -452,7 +464,8 @@ async def current_ip():
             "isp":         data.get("isp"),
         }
     except Exception as e:
-        return {"ok": False, "proxy": proxy_str, "error": str(e)}
+        return {"ok": False, "proxy": proxy_str,
+                "error": str(e), "error_code": err_code(e)}
 
 
 @app.get("/proxy_health")
@@ -463,7 +476,7 @@ def proxy_health():
     try:
         proxy = read_active_proxy()
     except Exception as e:
-        return {"ok": False, "error": f"прокси не задан: {e}"}
+        return {"ok": False, "error": f"no proxy configured: {e}", "error_code": "no_proxy"}
 
     proxy_str = f"{proxy['ip']}:{proxy['port']}"
     try:
@@ -471,7 +484,8 @@ def proxy_health():
         r["proxy"] = proxy_str
         return r
     except Exception as e:
-        return {"ok": False, "proxy": proxy_str, "error": str(e)}
+        return {"ok": False, "proxy": proxy_str,
+                "error": str(e), "error_code": err_code(e)}
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
