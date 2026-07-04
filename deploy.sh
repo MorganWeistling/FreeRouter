@@ -183,6 +183,23 @@ EOF
 ok "DHCP + DNS конфиг записан"
 info "Диапазон: ${DHCP_FROM} — ${DHCP_TO}  |  Шлюз: ${LAN_IP}  |  DNS: 8.8.8.8"
 
+# systemd drop-in: dnsmasq стартует раньше, чем поднимается $LAN_IFACE, и падает
+# с "unknown interface". Restart=on-failure + StartLimitIntervalSec=0 заставляют
+# повторять старт бесконечно, пока LAN-интерфейс не появится (переживает ребут).
+mkdir -p /etc/systemd/system/dnsmasq.service.d
+cat > /etc/systemd/system/dnsmasq.service.d/override.conf << 'EOF'
+[Unit]
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Restart=on-failure
+RestartSec=5s
+EOF
+systemctl daemon-reload
+ok "dnsmasq сделан устойчивым к порядку загрузки (Restart=on-failure)"
+
 systemctl restart dnsmasq || die \
     "dnsmasq не запустился." \
     "Проверьте логи: sudo journalctl -u dnsmasq -n 30"

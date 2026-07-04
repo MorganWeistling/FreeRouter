@@ -2,6 +2,9 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.8.2] - 2026-07-05
+- Fixed: dnsmasq (LAN DHCP/DNS) died after reboot with "unknown interface" because it started before the LAN interface was up. Added a systemd drop-in (`Restart=on-failure`, `RestartSec=5s`, `StartLimitIntervalSec=0`, `After/Wants=network-online.target`) so dnsmasq retries indefinitely until the interface appears. Applied to the live server and baked into `deploy.sh` for new installs.
+
 ## [1.8.1] - 2026-06-26
 - Hardened: explicit Linux capabilities in `sing-box.service` (`CAP_NET_ADMIN`, `CAP_NET_RAW`, `CAP_NET_BIND_SERVICE`) via `AmbientCapabilities` + `CapabilityBoundingSet`. Guarantees UDP/QUIC TProxy works (same path as TCP) even if sing-box is not run as root, and applies least-privilege instead of full root caps.
 - Verified: UDP TProxy redirect rule matches TCP (all UDP, incl. QUIC :443, sent to sing-box), TPROXY kernel modules loaded, policy routing (fwmark→table 100) intact, and the active proxy's SOCKS5 UDP ASSOCIATE relay forwards. Conclusion: the Ubuntu UDP/Android path is correct; "nothing loads" is caused by the upstream proxy stalling on bulk transfer.
