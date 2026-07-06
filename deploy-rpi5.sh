@@ -161,6 +161,70 @@ WAN_IFACE=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
 WAN_IP=$(ip -4 addr show "$WAN_IFACE" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
 ok "Интернет (WAN): ${W}$WAN_IFACE${N} ($WAN_IP)"
 
+# ── Статический IP для самой Pi (стабильный адрес для клиента) ────────────────
+# По DHCP адрес Pi может смениться после ребута роутера, и клиент перестанет её
+# находить. Фиксируем текущий Wi-Fi IP как статический (тот же адрес → ничего не рвём).
+info "Статический IP Raspberry Pi (адрес, к которому подключается клиент)..."
+WAN_CIDR=$(ip -4 addr show "$WAN_IFACE" 2>/dev/null | awk '/inet /{print $2; exit}')
+WAN_PREFIX="${WAN_CIDR#*/}"; [ "$WAN_PREFIX" = "$WAN_CIDR" ] && WAN_PREFIX=24
+WAN_GW=$(ip route show default | awk '/default/{print $3; exit}')
+STATIC_IP="$WAN_IP"
+if [ -t 0 ]; then
+    echo -e "    ${C}Текущий IP Pi: ${W}$WAN_IP${N}${C} (выдан роутером по Wi-Fi, может смениться).${N}"
+    read -r -p "    Зафиксировать статически? [Enter=да] / другой IP / n=оставить DHCP: " ANS || ANS=""
+    case "$ANS" in
+        ""|[Yy]*) STATIC_IP="$WAN_IP" ;;
+        [Nn]*)    STATIC_IP="" ;;
+        *)        STATIC_IP="$ANS" ;;
+    esac
+fi
+if [ -z "$STATIC_IP" ] || [ -z "$WAN_GW" ]; then
+    warn "Оставлен DHCP — IP Pi может смениться. Клиент придётся перенастраивать."
+elif $NM_ACTIVE; then
+    WAN_CON=$(nmcli -t -f NAME,DEVICE con show --active | awk -F: -v d="$WAN_IFACE" '$2==d{print $1; exit}')
+    if [ -n "$WAN_CON" ]; then
+        nmcli con mod "$WAN_CON" ipv4.method manual \
+            ipv4.addresses "${STATIC_IP}/${WAN_PREFIX}" ipv4.gateway "$WAN_GW" \
+            ipv4.dns "8.8.8.8 1.1.1.1" 2>/dev/null \
+            && nmcli con up "$WAN_CON" 2>/dev/null || warn "nmcli не смог применить — оставляю как есть."
+        sleep 2
+        WAN_IP=$(ip -4 addr show "$WAN_IFACE" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+        ok "Статический IP Pi: ${W}$WAN_IP${N} (шлюз $WAN_GW, NetworkManager)"
+    else
+        warn "Не нашёл Wi-Fi соединение в NetworkManager — оставляю DHCP."
+    fi
+elif [ -f /etc/dhcpcd.conf ]; then
+    sed -i '/# JackalRouter WAN/,/^$/d' /etc/dhcpcd.conf 2>/dev/null || true
+    cat >> /etc/dhcpcd.conf << EOF
+
+# JackalRouter WAN — не менять вручную
+interface $WAN_IFACE
+static ip_address=${STATIC_IP}/${WAN_PREFIX}
+static routers=${WAN_GW}
+static domain_name_servers=8.8.8.8 1.1.1.1
+EOF
+    systemctl restart dhcpcd 2>/dev/null || true
+    sleep 2
+    WAN_IP="$STATIC_IP"
+    ok "Статический IP Pi: ${W}$WAN_IP${N} (шлюз $WAN_GW, dhcpcd)"
+else
+    warn "Не найден NetworkManager/dhcpcd — статику назначить нечем, оставляю DHCP."
+fi
+
+# ── Проверка DNS (после смены на manual стуб systemd-resolved иногда не резолвит) ─
+if ! getent hosts google.com >/dev/null 2>&1; then
+    warn "DNS не резолвит — исправляю resolv.conf..."
+    if [ -f /run/systemd/resolve/resolv.conf ]; then
+        ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+    else
+        printf 'nameserver %s\nnameserver 8.8.8.8\nnameserver 1.1.1.1\n' "${WAN_GW:-8.8.8.8}" > /etc/resolv.conf
+    fi
+    getent hosts google.com >/dev/null 2>&1 && ok "DNS восстановлен" \
+        || warn "DNS всё ещё не резолвит — проверьте вручную:  nslookup google.com"
+else
+    ok "DNS резолвит корректно"
+fi
+
 # ── LAN = eth0 (в него воткнём кабель к тех. роутеру) ─────────────────────────
 if [ "$WAN_IFACE" = "eth0" ]; then
     die "Интернет идёт по кабелю (eth0), но этот порт нужен для тех. роутера." \

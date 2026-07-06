@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.9.1] - 2026-07-05
+- Added: both deploy scripts now offer to pin the box's own WAN IP as **static** (the address the client connects to), defaulting to the current IP so nothing breaks. Prevents the control IP from changing on DHCP-lease renewal. Interactive prompt (custom IP or keep DHCP); applied via NetworkManager (Ubuntu/Pi) or dhcpcd (older Pi OS). Applied live on the Ubuntu box (192.168.1.96 → static).
+- Added: DNS self-repair after switching to a static IP — if the systemd-resolved stub stops resolving, resolv.conf is repointed at the real upstream servers so the box keeps working.
+
 ## [1.9.0] - 2026-07-05
 - Added: `deploy-rpi5.sh` — a separate, beginner-friendly installer for Raspberry Pi 5 (Raspberry Pi OS / ARM64). Compatibility checks (ARM64 arch + correct sing-box build, Pi model, Debian/Pi OS, kernel TProxy support with a live probe), interactive Wi-Fi setup when there's no internet, NetworkManager and dhcpcd support for the static LAN IP, reboot-resilient dnsmasq, and the same leak protection (TProxy TCP+UDP, FakeIP, MSS clamp, IPv6 block). Topology: Wi-Fi (`wlan0`) = WAN, Ethernet (`eth0`) = LAN.
 - Hardened: `deploy.sh` and `deploy-rpi5.sh` guard pipe-based command substitutions (`grep … | head` for interface/version detection) with `|| true` so a no-match doesn't abort the script under `set -euo pipefail` before the friendly error is shown.

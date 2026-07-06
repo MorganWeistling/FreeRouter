@@ -81,6 +81,50 @@ WAN_IFACE=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
 WAN_IP=$(ip -4 addr show "$WAN_IFACE" | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
 ok "Интернет-интерфейс: ${W}$WAN_IFACE${N} ($WAN_IP)"
 
+# ── Статический IP для самой коробки (стабильный адрес для клиента) ───────────
+# По DHCP адрес коробки может смениться после ребута роутера, и клиент перестанет
+# её находить. Фиксируем текущий IP как статический (тот же адрес → ничего не рвём).
+info "Статический IP коробки (адрес, к которому подключается клиент)..."
+WAN_CIDR=$(ip -4 addr show "$WAN_IFACE" | awk '/inet /{print $2; exit}')
+WAN_PREFIX="${WAN_CIDR#*/}"; [ "$WAN_PREFIX" = "$WAN_CIDR" ] && WAN_PREFIX=24
+WAN_GW=$(ip route show default | awk '/default/{print $3; exit}')
+WAN_CON=$(nmcli -t -f NAME,DEVICE con show --active | awk -F: -v d="$WAN_IFACE" '$2==d{print $1; exit}')
+STATIC_IP="$WAN_IP"
+if [ -t 0 ] && [ -n "$WAN_CON" ]; then
+    echo -e "    ${C}Текущий IP коробки: ${W}$WAN_IP${N}${C} (выдан роутером, может смениться).${N}"
+    read -r -p "    Зафиксировать статически? [Enter=да] / другой IP / n=оставить DHCP: " ANS || ANS=""
+    case "$ANS" in
+        ""|[Yy]*) STATIC_IP="$WAN_IP" ;;
+        [Nn]*)    STATIC_IP="" ;;
+        *)        STATIC_IP="$ANS" ;;
+    esac
+fi
+if [ -n "$STATIC_IP" ] && [ -n "$WAN_CON" ] && [ -n "$WAN_GW" ]; then
+    nmcli con mod "$WAN_CON" ipv4.method manual \
+        ipv4.addresses "${STATIC_IP}/${WAN_PREFIX}" ipv4.gateway "$WAN_GW" \
+        ipv4.dns "8.8.8.8 1.1.1.1" 2>/dev/null \
+        && nmcli con up "$WAN_CON" 2>/dev/null || warn "nmcli не смог применить — оставляю как есть."
+    sleep 2
+    WAN_IP=$(ip -4 addr show "$WAN_IFACE" | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+    ok "Статический IP коробки: ${W}$WAN_IP${N}  (шлюз $WAN_GW)"
+else
+    warn "Оставлен DHCP — IP коробки может смениться. Клиент придётся перенастраивать."
+fi
+
+# ── Проверка DNS (после смены на manual стуб systemd-resolved иногда не резолвит) ─
+if ! getent hosts google.com >/dev/null 2>&1; then
+    warn "DNS не резолвит — исправляю resolv.conf..."
+    if [ -f /run/systemd/resolve/resolv.conf ]; then
+        ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+    else
+        printf 'nameserver %s\nnameserver 8.8.8.8\nnameserver 1.1.1.1\n' "${WAN_GW:-8.8.8.8}" > /etc/resolv.conf
+    fi
+    getent hosts google.com >/dev/null 2>&1 && ok "DNS восстановлен" \
+        || warn "DNS всё ещё не резолвит — проверьте вручную:  nslookup google.com"
+else
+    ok "DNS резолвит корректно"
+fi
+
 info "Ищу LAN-интерфейс для подключения роутера..."
 LAN_IFACE=$(ip -o link show | awk -F': ' '{print $2}' | \
     grep -E '^(en|eth)' | grep -v "^${WAN_IFACE}$" | head -1 || true)
