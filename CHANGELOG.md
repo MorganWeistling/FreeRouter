@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.9.0] - 2026-07-05
+- Added: `deploy-rpi5.sh` — a separate, beginner-friendly installer for Raspberry Pi 5 (Raspberry Pi OS / ARM64). Compatibility checks (ARM64 arch + correct sing-box build, Pi model, Debian/Pi OS, kernel TProxy support with a live probe), interactive Wi-Fi setup when there's no internet, NetworkManager and dhcpcd support for the static LAN IP, reboot-resilient dnsmasq, and the same leak protection (TProxy TCP+UDP, FakeIP, MSS clamp, IPv6 block). Topology: Wi-Fi (`wlan0`) = WAN, Ethernet (`eth0`) = LAN.
+- Hardened: `deploy.sh` and `deploy-rpi5.sh` guard pipe-based command substitutions (`grep … | head` for interface/version detection) with `|| true` so a no-match doesn't abort the script under `set -euo pipefail` before the friendly error is shown.
+
 ## [1.8.2] - 2026-07-05
 - Fixed: dnsmasq (LAN DHCP/DNS) died after reboot with "unknown interface" because it started before the LAN interface was up. Added a systemd drop-in (`Restart=on-failure`, `RestartSec=5s`, `StartLimitIntervalSec=0`, `After/Wants=network-online.target`) so dnsmasq retries indefinitely until the interface appears. Applied to the live server and baked into `deploy.sh` for new installs.
 

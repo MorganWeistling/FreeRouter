@@ -83,8 +83,8 @@ ok "Интернет-интерфейс: ${W}$WAN_IFACE${N} ($WAN_IP)"
 
 info "Ищу LAN-интерфейс для подключения роутера..."
 LAN_IFACE=$(ip -o link show | awk -F': ' '{print $2}' | \
-    grep -E '^(en|eth)' | grep -v "^${WAN_IFACE}$" | head -1)
-[ -z "$LAN_IFACE" ] && die \
+    grep -E '^(en|eth)' | grep -v "^${WAN_IFACE}$" | head -1 || true)
+[ -z "${LAN_IFACE:-}" ] && die \
     "Не найден LAN-интерфейс для подключения роутера." \
     "Убедитесь что сетевая карта подключена. Список:  ip link show"
 
@@ -300,8 +300,8 @@ step 7 "Установка sing-box и JackalRouter"
 # ── sing-box ──────────────────────────────────────────────────────────────────
 info "Определяю последнюю версию sing-box..."
 SINGBOX_VERSION=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest \
-    2>/dev/null | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/' | head -1)
-[ -z "$SINGBOX_VERSION" ] && SINGBOX_VERSION="1.13.13"
+    2>/dev/null | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/' | head -1 || true)
+[ -z "${SINGBOX_VERSION:-}" ] && SINGBOX_VERSION="1.13.13"
 ok "sing-box v${SINGBOX_VERSION}"
 
 info "Скачиваю sing-box..."

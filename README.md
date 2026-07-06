@@ -83,6 +83,7 @@ The client includes a **Check UDP** button that tests whether the upstream proxy
 | `server/jackalrouter.service` | systemd unit for the API server auto-start |
 | `client/client.py` | Windows Tkinter GUI — applies proxy, checks TCP + geo, UDP ASSOCIATE, IP cleanliness (open-source reputation) + speed, proxy history |
 | `deploy.sh` | Full automated deployment script for Ubuntu |
+| `deploy-rpi5.sh` | Beginner-friendly deployment for Raspberry Pi 5 (ARM64, Raspberry Pi OS) with compatibility checks and Wi-Fi setup |
 
 ### Requirements
 
@@ -110,7 +111,16 @@ The client includes a **Check UDP** button that tests whether the upstream proxy
 ```bash
 # On Ubuntu — run once:
 sudo bash deploy.sh
+
+# On a Raspberry Pi 5 (Raspberry Pi OS) — run once instead:
+sudo bash deploy-rpi5.sh
 ```
+
+> **Raspberry Pi 5** has its own beginner-friendly installer (`deploy-rpi5.sh`) with
+> compatibility checks (ARM64 arch, Pi model, kernel TProxy support), interactive
+> Wi-Fi setup if there's no internet, NetworkManager/dhcpcd support, and the correct
+> ARM64 sing-box build. Topology: **Pi Wi-Fi (`wlan0`) = WAN (home internet)**,
+> **Pi Ethernet (`eth0`) = LAN (cable to the technical router)**.
 
 The script will:
 1. Check internet and system requirements
@@ -250,6 +260,7 @@ JackalRouter использует **SOCKS5 UDP ASSOCIATE**:
 | `server/jackalrouter.service` | Юнит systemd для автозапуска API-сервера |
 | `client/client.py` | GUI-клиент на Windows (Tkinter) — применяет прокси, проверяет TCP + гео, UDP ASSOCIATE, чистоту IP (репутация из открытых баз) + скорость, история прокси |
 | `deploy.sh` | Скрипт полного автоматического деплоя на Ubuntu |
+| `deploy-rpi5.sh` | Дружелюбный к новичку деплой на Raspberry Pi 5 (ARM64, Raspberry Pi OS) с проверками совместимости и настройкой Wi-Fi |
 
 ### Требования
 
@@ -277,7 +288,16 @@ JackalRouter использует **SOCKS5 UDP ASSOCIATE**:
 ```bash
 # На Ubuntu — один раз:
 sudo bash deploy.sh
+
+# На Raspberry Pi 5 (Raspberry Pi OS) — вместо этого:
+sudo bash deploy-rpi5.sh
 ```
+
+> **Raspberry Pi 5** — отдельный установщик для новичка (`deploy-rpi5.sh`): проверки
+> совместимости (ARM64, модель Pi, поддержка TProxy в ядре), интерактивная настройка
+> Wi-Fi если нет интернета, поддержка NetworkManager/dhcpcd и правильная ARM64-сборка
+> sing-box. Схема: **Wi-Fi Pi (`wlan0`) = WAN (домашний интернет)**,
+> **Ethernet Pi (`eth0`) = LAN (кабель в технический роутер)**.
 
 Скрипт выполнит:
 1. Проверку интернета и системных требований
