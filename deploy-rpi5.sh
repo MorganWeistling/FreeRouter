@@ -427,6 +427,43 @@ ethtool -K "$LAN_IFACE" gro off gso off tso off lro off 2>/dev/null || \
     warn "ethtool не смог отключить offload — не критично"
 ok "GRO/GSO/TSO отключены"
 
+# ── Маскировка сетевого железа (анти-фингерпринт коробки) ─────────────────────
+info "Маскировка железа: TTL / timestamps / hostname / mDNS / MAC..."
+modprobe xt_HL 2>/dev/null || true
+iptables -t mangle -D POSTROUTING -o "$WAN_IFACE" -j TTL --ttl-set 128 2>/dev/null || true
+if iptables -t mangle -A POSTROUTING -o "$WAN_IFACE" -j TTL --ttl-set 128 2>/dev/null; then
+    ok "TTL исходящих → 128 (Windows-like)"
+else
+    warn "модуль TTL (xt_HL) недоступен — TTL не нормализован"
+fi
+sysctl -w net.ipv4.tcp_timestamps=0 -q 2>/dev/null || true
+grep -q 'net.ipv4.tcp_timestamps' /etc/sysctl.conf 2>/dev/null \
+    && sed -i 's/.*net.ipv4.tcp_timestamps.*/net.ipv4.tcp_timestamps=0/' /etc/sysctl.conf \
+    || echo 'net.ipv4.tcp_timestamps=0' >> /etc/sysctl.conf
+ok "TCP timestamps выключены"
+hostnamectl set-hostname router 2>/dev/null || true
+if grep -q '^127.0.1.1' /etc/hosts 2>/dev/null; then
+    sed -i 's/^127.0.1.1.*/127.0.1.1\trouter/' /etc/hosts
+else
+    printf '127.0.1.1\trouter\n' >> /etc/hosts
+fi
+ok "Hostname → router"
+systemctl disable --now avahi-daemon avahi-daemon.socket 2>/dev/null || true
+ok "avahi/mDNS отключён"
+MASK_CON=$(nmcli -t -f NAME,DEVICE con show --active 2>/dev/null | awk -F: -v d="$WAN_IFACE" '$2==d{print $1; exit}' || true)
+if [ -n "${SSH_CONNECTION:-}" ]; then
+    warn "MAC-спуфинг пропущен (удалённый деплой оборвёт связь). Локально:"
+    warn "  sudo nmcli con mod '$MASK_CON' 802-11-wireless.cloned-mac-address random && sudo nmcli con up '$MASK_CON'"
+elif [ -n "$MASK_CON" ]; then
+    NEWMAC=$(printf '50:C7:BF:%02X:%02X:%02X' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))
+    nmcli con mod "$MASK_CON" 802-11-wireless.cloned-mac-address "$NEWMAC" 2>/dev/null || true
+    nmcli con mod "$MASK_CON" ethernet.cloned-mac-address "$NEWMAC" 2>/dev/null || true
+    nmcli con up "$MASK_CON" 2>/dev/null || true
+    ok "MAC WAN → $NEWMAC"
+else
+    warn "WAN-соединение NM не найдено — MAC не изменён"
+fi
+
 info "Сохраняю правила iptables..."
 netfilter-persistent save -q 2>/dev/null \
     || { mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4; ip6tables-save > /etc/iptables/rules.v6; }

@@ -2,6 +2,9 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.12.0] - 2026-07-05
+- Added: network-hardware masking (anti-fingerprint of the box itself) in all three deploy scripts — hides the "Linux laptop" tells from the ISP / proxy provider: outbound **TTL normalized to 128** (Windows-like, vs Linux 64) via `iptables -j TTL`, **TCP timestamps off**, neutral **hostname `router`** (no `family-…` in DHCP/mDNS), **avahi/mDNS disabled**, and **MAC spoofing** of the WAN interface (random, plausible OUI). MAC spoofing is auto-skipped during a remote (`ssh`) deploy since it would drop the link — it's applied only on a local run, with the manual command printed otherwise. Applied and verified live on the Ubuntu box (tcpdump confirmed egress `ttl 128`). Note: this masks the box from the ISP; it does **not** change what target sites see (they see the residential exit node), and it cannot spoof the connected devices' TLS/JA3 fingerprints — that requires an antidetect browser, not a transparent gateway.
+
 ## [1.11.2] - 2026-07-05
 - Added: macOS support for the remote deploy — `deploy.command` double-click launcher (parity with `deploy.bat`), and docs clarifying that macOS/Linux use `python3 deploy.py` (there is no `python` on macOS). `deploy.py` itself is already cross-platform: the Windows-only `chcp`/ANSI setup is guarded behind `os.name == "nt"`, so nothing Windows-specific runs on a Mac. (Deliberately did **not** add SSH ControlMaster multiplexing: on macOS the control-socket path under `/var/folders` often exceeds the 104-char UNIX-socket limit and would break — not worth the risk while it can't be tested on a Mac.)
 
