@@ -85,7 +85,8 @@ The client includes a **Check UDP** button that tests whether the upstream proxy
 | `deploy.sh` | Full automated deployment script for Ubuntu |
 | `deploy-rpi5.sh` | Pi 5 deploy — Wi-Fi = WAN, Ethernet = LAN (to a technical router), mirrors Ubuntu |
 | `deploy-rpi5-ap.sh` | Pi 5 deploy — Ethernet = WAN (cable), Wi-Fi = own access point (standalone router, no technical router) |
-| `deploy.py` / `deploy.bat` | Client-side remote installer: enter server IP → check → set up NOPASSWD sudo → pick deploy type → auto copy + run over SSH |
+| `deploy.py` | Client-side remote installer: enter server IP → check → set up NOPASSWD sudo → pick deploy type → auto copy + run over SSH |
+| `deploy.bat` / `deploy.command` | Double-click launchers for `deploy.py` (Windows / macOS) |
 
 ### Requirements
 
@@ -113,9 +114,14 @@ The client includes a **Check UDP** button that tests whether the upstream proxy
 **Recommended — one command from the client (no manual file copying):**
 
 ```bash
-# On the client (Windows/Linux/Mac), from the project folder:
-python deploy.py            # or double-click deploy.bat on Windows
+# From the project folder on the client:
+python deploy.py            # Windows        (or double-click deploy.bat)
+python3 deploy.py           # macOS / Linux  (or double-click deploy.command on macOS)
 ```
+
+> On macOS the command is `python3` (there is no `python`). If double-clicking
+> `deploy.command` is blocked by Gatekeeper, right-click it → **Open**, or run
+> `chmod +x deploy.command && ./deploy.command`.
 
 `deploy.py` asks for the server IP + SSH login, checks the connection, sets up
 passwordless `sudo` (NOPASSWD), lets you pick the deploy type by a simple name, then
@@ -293,7 +299,8 @@ JackalRouter использует **SOCKS5 UDP ASSOCIATE**:
 | `deploy.sh` | Скрипт полного автоматического деплоя на Ubuntu |
 | `deploy-rpi5.sh` | Деплой Pi 5 — Wi-Fi = WAN, Ethernet = LAN (в технический роутер), как на Ubuntu |
 | `deploy-rpi5-ap.sh` | Деплой Pi 5 — Ethernet = WAN (кабель), Wi-Fi = своя точка доступа (самостоятельный роутер, без техроутера) |
-| `deploy.py` / `deploy.bat` | Удалённый установщик с клиента: ввёл IP → проверка → NOPASSWD sudo → выбрал вид деплоя → сам копирует и запускает по SSH |
+| `deploy.py` | Удалённый установщик с клиента: ввёл IP → проверка → NOPASSWD sudo → выбрал вид деплоя → сам копирует и запускает по SSH |
+| `deploy.bat` / `deploy.command` | Лаунчеры для двойного клика по `deploy.py` (Windows / macOS) |
 
 ### Требования
 
@@ -321,9 +328,14 @@ JackalRouter использует **SOCKS5 UDP ASSOCIATE**:
 **Рекомендуется — одной командой с клиента (без ручного копирования файлов):**
 
 ```bash
-# На клиенте (Windows/Linux/Mac), из папки проекта:
-python deploy.py            # или двойной клик по deploy.bat на Windows
+# Из папки проекта на клиенте:
+python deploy.py            # Windows        (или двойной клик по deploy.bat)
+python3 deploy.py           # macOS / Linux  (или двойной клик по deploy.command на macOS)
 ```
+
+> На macOS команда — `python3` (команды `python` там нет). Если двойной клик по
+> `deploy.command` блокирует Gatekeeper — правый клик → **Открыть**, либо в терминале:
+> `chmod +x deploy.command && ./deploy.command`.
 
 `deploy.py` спросит IP сервера и SSH-логин, проверит связь, отключит пароль `sudo`
 (NOPASSWD), даст выбрать вид деплоя простым названием, затем **сам скопирует файлы и

@@ -2,6 +2,9 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.11.2] - 2026-07-05
+- Added: macOS support for the remote deploy — `deploy.command` double-click launcher (parity with `deploy.bat`), and docs clarifying that macOS/Linux use `python3 deploy.py` (there is no `python` on macOS). `deploy.py` itself is already cross-platform: the Windows-only `chcp`/ANSI setup is guarded behind `os.name == "nt"`, so nothing Windows-specific runs on a Mac. (Deliberately did **not** add SSH ControlMaster multiplexing: on macOS the control-socket path under `/var/folders` often exceeds the 104-char UNIX-socket limit and would break — not worth the risk while it can't be tested on a Mac.)
+
 ## [1.11.1] - 2026-07-05
 - Fixed: all deploy scripts died on the very first line (`clear`) when run without a proper TTY/TERM — e.g. when launched remotely by `deploy.py` over `ssh` or detached — printing a cryptic `'unknown': I need something more specific.` under `set -euo pipefail`. `clear` is now non-fatal (`clear 2>/dev/null || true`). Verified end-to-end: a full remote deploy now completes through all 8 steps.
 - Fixed: `deploy.py` crashed on Windows with `UnicodeEncodeError` when its output was piped/redirected (cp1251) — now forces UTF-8 output (and `chcp 65001` on Windows) so the boxes/Cyrillic render without crashing.
