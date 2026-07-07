@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.11.0] - 2026-07-05
+- Added: `deploy.py` (+ `deploy.bat` launcher) — one-command remote deploy from the client. Enter the server IP + SSH login, it checks the connection, sets up passwordless `sudo` (NOPASSWD), lets you pick the deploy type by a simple name (UBUNTU + ROUTER / RASPBERRY + ROUTER / RASPBERRY + WIFI), then copies the files over `scp` and runs the matching installer over `ssh -t` — no more manual file copying. Normalizes CRLF→LF on the server so scripts run even if checked out on Windows.
+- Added: `.gitattributes` forcing LF on `*.sh` / `*.service` / `*.py` so server scripts are never broken by Windows line endings.
+
 ## [1.10.0] - 2026-07-05
 - Added: `deploy-rpi5-ap.sh` — a second Raspberry Pi installer where the Pi is a **standalone Wi-Fi router**: internet comes in over the **Ethernet cable (`eth0` = WAN)** and the Pi broadcasts **its own Wi-Fi access point (`wlan0`, WPA2)** that devices connect to — no technical router needed. Uses NetworkManager AP mode for the hotspot + our dnsmasq for DHCP, asks for the SSID/password/country, sets the Wi-Fi regulatory domain, and keeps the same compatibility checks and leak protection (TProxy TCP+UDP, FakeIP, MSS clamp, IPv6 block, reboot-resilient dnsmasq). Complements `deploy-rpi5.sh` (Wi-Fi = WAN, Ethernet = LAN).
 

@@ -85,6 +85,7 @@ The client includes a **Check UDP** button that tests whether the upstream proxy
 | `deploy.sh` | Full automated deployment script for Ubuntu |
 | `deploy-rpi5.sh` | Pi 5 deploy — Wi-Fi = WAN, Ethernet = LAN (to a technical router), mirrors Ubuntu |
 | `deploy-rpi5-ap.sh` | Pi 5 deploy — Ethernet = WAN (cable), Wi-Fi = own access point (standalone router, no technical router) |
+| `deploy.py` / `deploy.bat` | Client-side remote installer: enter server IP → check → set up NOPASSWD sudo → pick deploy type → auto copy + run over SSH |
 
 ### Requirements
 
@@ -108,6 +109,28 @@ The client includes a **Check UDP** button that tests whether the upstream proxy
 - Use the **Check UDP** button in the client to verify before routing
 
 ### Deployment
+
+**Recommended — one command from the client (no manual file copying):**
+
+```bash
+# On the client (Windows/Linux/Mac), from the project folder:
+python deploy.py            # or double-click deploy.bat on Windows
+```
+
+`deploy.py` asks for the server IP + SSH login, checks the connection, sets up
+passwordless `sudo` (NOPASSWD), lets you pick the deploy type by a simple name, then
+**copies the files and runs the right installer on the server automatically**:
+
+| Choice | Runs | Topology |
+|---|---|---|
+| **UBUNTU + ROUTER** | `deploy.sh` | Ubuntu; Wi-Fi = WAN, Ethernet = LAN (technical router) |
+| **RASPBERRY + ROUTER** | `deploy-rpi5.sh` | Pi; Wi-Fi = WAN, Ethernet = LAN (technical router) |
+| **RASPBERRY + WIFI** | `deploy-rpi5-ap.sh` | Pi as its own Wi-Fi router; Ethernet = WAN, Wi-Fi = access point |
+
+Requires the OpenSSH client (`ssh`/`scp`) — built into Windows 10/11 and Linux/Mac. An
+SSH key is recommended (otherwise you'll enter the password a few times).
+
+**Manual (run directly on the server) — same installers:**
 
 ```bash
 # On Ubuntu — run once:
@@ -270,6 +293,7 @@ JackalRouter использует **SOCKS5 UDP ASSOCIATE**:
 | `deploy.sh` | Скрипт полного автоматического деплоя на Ubuntu |
 | `deploy-rpi5.sh` | Деплой Pi 5 — Wi-Fi = WAN, Ethernet = LAN (в технический роутер), как на Ubuntu |
 | `deploy-rpi5-ap.sh` | Деплой Pi 5 — Ethernet = WAN (кабель), Wi-Fi = своя точка доступа (самостоятельный роутер, без техроутера) |
+| `deploy.py` / `deploy.bat` | Удалённый установщик с клиента: ввёл IP → проверка → NOPASSWD sudo → выбрал вид деплоя → сам копирует и запускает по SSH |
 
 ### Требования
 
@@ -293,6 +317,28 @@ JackalRouter использует **SOCKS5 UDP ASSOCIATE**:
 - Используйте кнопку **Проверить UDP** в клиенте для проверки перед применением
 
 ### Деплой
+
+**Рекомендуется — одной командой с клиента (без ручного копирования файлов):**
+
+```bash
+# На клиенте (Windows/Linux/Mac), из папки проекта:
+python deploy.py            # или двойной клик по deploy.bat на Windows
+```
+
+`deploy.py` спросит IP сервера и SSH-логин, проверит связь, отключит пароль `sudo`
+(NOPASSWD), даст выбрать вид деплоя простым названием, затем **сам скопирует файлы и
+запустит нужный установщик на сервере**:
+
+| Выбор | Запускает | Схема |
+|---|---|---|
+| **UBUNTU + ROUTER** | `deploy.sh` | Ubuntu; Wi-Fi = WAN, Ethernet = LAN (тех. роутер) |
+| **RASPBERRY + ROUTER** | `deploy-rpi5.sh` | Pi; Wi-Fi = WAN, Ethernet = LAN (тех. роутер) |
+| **RASPBERRY + WIFI** | `deploy-rpi5-ap.sh` | Pi = свой Wi-Fi роутер; Ethernet = WAN, Wi-Fi = точка доступа |
+
+Нужен клиент OpenSSH (`ssh`/`scp`) — встроен в Windows 10/11 и Linux/Mac. Желателен
+SSH-ключ (иначе пароль спросит несколько раз).
+
+**Вручную (прямо на сервере) — те же установщики:**
 
 ```bash
 # На Ubuntu — один раз:
