@@ -83,7 +83,8 @@ The client includes a **Check UDP** button that tests whether the upstream proxy
 | `server/jackalrouter.service` | systemd unit for the API server auto-start |
 | `client/client.py` | Windows Tkinter GUI — applies proxy, checks TCP + geo, UDP ASSOCIATE, IP cleanliness (open-source reputation) + speed, proxy history |
 | `deploy.sh` | Full automated deployment script for Ubuntu |
-| `deploy-rpi5.sh` | Beginner-friendly deployment for Raspberry Pi 5 (ARM64, Raspberry Pi OS) with compatibility checks and Wi-Fi setup |
+| `deploy-rpi5.sh` | Pi 5 deploy — Wi-Fi = WAN, Ethernet = LAN (to a technical router), mirrors Ubuntu |
+| `deploy-rpi5-ap.sh` | Pi 5 deploy — Ethernet = WAN (cable), Wi-Fi = own access point (standalone router, no technical router) |
 
 ### Requirements
 
@@ -112,15 +113,22 @@ The client includes a **Check UDP** button that tests whether the upstream proxy
 # On Ubuntu — run once:
 sudo bash deploy.sh
 
-# On a Raspberry Pi 5 (Raspberry Pi OS) — run once instead:
-sudo bash deploy-rpi5.sh
+# On a Raspberry Pi 5 (Raspberry Pi OS) — pick ONE of the two topologies:
+sudo bash deploy-rpi5.sh       # internet via Wi-Fi, distribute via Ethernet+router
+sudo bash deploy-rpi5-ap.sh    # internet via Ethernet cable, Pi broadcasts its own Wi-Fi
 ```
 
-> **Raspberry Pi 5** has its own beginner-friendly installer (`deploy-rpi5.sh`) with
-> compatibility checks (ARM64 arch, Pi model, kernel TProxy support), interactive
-> Wi-Fi setup if there's no internet, NetworkManager/dhcpcd support, and the correct
-> ARM64 sing-box build. Topology: **Pi Wi-Fi (`wlan0`) = WAN (home internet)**,
-> **Pi Ethernet (`eth0`) = LAN (cable to the technical router)**.
+**Raspberry Pi 5 — two beginner-friendly installers** (compatibility checks: ARM64
+arch + correct sing-box build, Pi model, kernel TProxy probe; reboot-resilient dnsmasq;
+same leak protection):
+
+- **`deploy-rpi5.sh`** — mirrors the Ubuntu setup: **Wi-Fi (`wlan0`) = WAN (home
+  internet)**, **Ethernet (`eth0`) = LAN (cable to a technical router)**. Interactive
+  Wi-Fi client setup if there's no internet.
+- **`deploy-rpi5-ap.sh`** — Pi is a **standalone Wi-Fi router (no technical router
+  needed)**: **Ethernet (`eth0`) = WAN (internet from the cable)**, **Wi-Fi (`wlan0`) =
+  its own access point (WPA2)** that phones connect to. Asks for the SSID/password to
+  broadcast; uses NetworkManager AP mode + our dnsmasq for DHCP.
 
 The script will:
 1. Check internet and system requirements
@@ -260,7 +268,8 @@ JackalRouter использует **SOCKS5 UDP ASSOCIATE**:
 | `server/jackalrouter.service` | Юнит systemd для автозапуска API-сервера |
 | `client/client.py` | GUI-клиент на Windows (Tkinter) — применяет прокси, проверяет TCP + гео, UDP ASSOCIATE, чистоту IP (репутация из открытых баз) + скорость, история прокси |
 | `deploy.sh` | Скрипт полного автоматического деплоя на Ubuntu |
-| `deploy-rpi5.sh` | Дружелюбный к новичку деплой на Raspberry Pi 5 (ARM64, Raspberry Pi OS) с проверками совместимости и настройкой Wi-Fi |
+| `deploy-rpi5.sh` | Деплой Pi 5 — Wi-Fi = WAN, Ethernet = LAN (в технический роутер), как на Ubuntu |
+| `deploy-rpi5-ap.sh` | Деплой Pi 5 — Ethernet = WAN (кабель), Wi-Fi = своя точка доступа (самостоятельный роутер, без техроутера) |
 
 ### Требования
 
@@ -289,15 +298,22 @@ JackalRouter использует **SOCKS5 UDP ASSOCIATE**:
 # На Ubuntu — один раз:
 sudo bash deploy.sh
 
-# На Raspberry Pi 5 (Raspberry Pi OS) — вместо этого:
-sudo bash deploy-rpi5.sh
+# На Raspberry Pi 5 (Raspberry Pi OS) — выберите ОДНУ из двух схем:
+sudo bash deploy-rpi5.sh       # интернет по Wi-Fi, раздача по кабелю через роутер
+sudo bash deploy-rpi5-ap.sh    # интернет по кабелю, Pi раздаёт свой Wi-Fi
 ```
 
-> **Raspberry Pi 5** — отдельный установщик для новичка (`deploy-rpi5.sh`): проверки
-> совместимости (ARM64, модель Pi, поддержка TProxy в ядре), интерактивная настройка
-> Wi-Fi если нет интернета, поддержка NetworkManager/dhcpcd и правильная ARM64-сборка
-> sing-box. Схема: **Wi-Fi Pi (`wlan0`) = WAN (домашний интернет)**,
-> **Ethernet Pi (`eth0`) = LAN (кабель в технический роутер)**.
+**Raspberry Pi 5 — два установщика для новичка** (проверки совместимости: ARM64 +
+правильная сборка sing-box, модель Pi, проба TProxy в ядре; reboot-устойчивый dnsmasq;
+та же защита от утечек):
+
+- **`deploy-rpi5.sh`** — как на Ubuntu: **Wi-Fi (`wlan0`) = WAN (домашний интернет)**,
+  **Ethernet (`eth0`) = LAN (кабель в технический роутер)**. Если интернета нет —
+  интерактивно настроит Wi-Fi.
+- **`deploy-rpi5-ap.sh`** — Pi = **самостоятельный Wi-Fi роутер (техроутер не нужен)**:
+  **Ethernet (`eth0`) = WAN (интернет по кабелю)**, **Wi-Fi (`wlan0`) = своя точка
+  доступа (WPA2)**, к которой подключаются телефоны. Спросит имя/пароль сети; использует
+  AP-режим NetworkManager + наш dnsmasq для DHCP.
 
 Скрипт выполнит:
 1. Проверку интернета и системных требований

@@ -2,6 +2,9 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.10.0] - 2026-07-05
+- Added: `deploy-rpi5-ap.sh` — a second Raspberry Pi installer where the Pi is a **standalone Wi-Fi router**: internet comes in over the **Ethernet cable (`eth0` = WAN)** and the Pi broadcasts **its own Wi-Fi access point (`wlan0`, WPA2)** that devices connect to — no technical router needed. Uses NetworkManager AP mode for the hotspot + our dnsmasq for DHCP, asks for the SSID/password/country, sets the Wi-Fi regulatory domain, and keeps the same compatibility checks and leak protection (TProxy TCP+UDP, FakeIP, MSS clamp, IPv6 block, reboot-resilient dnsmasq). Complements `deploy-rpi5.sh` (Wi-Fi = WAN, Ethernet = LAN).
+
 ## [1.9.1] - 2026-07-05
 - Added: both deploy scripts now offer to pin the box's own WAN IP as **static** (the address the client connects to), defaulting to the current IP so nothing breaks. Prevents the control IP from changing on DHCP-lease renewal. Interactive prompt (custom IP or keep DHCP); applied via NetworkManager (Ubuntu/Pi) or dhcpcd (older Pi OS). Applied live on the Ubuntu box (192.168.1.96 → static).
 - Added: DNS self-repair after switching to a static IP — if the systemd-resolved stub stops resolving, resolv.conf is repointed at the real upstream servers so the box keeps working.
