@@ -2,6 +2,9 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.12.1] - 2026-07-05
+- Reverted: hardware masking (TTL=128, TCP timestamps off, hostname `router`, avahi disabled, MAC spoofing) removed from all three deploy scripts and rolled back on the live Ubuntu box. TPROXY already provides full transparency at the network level, making OS/hardware-level masking unnecessary — decided not to carry the extra complexity.
+
 ## [1.12.0] - 2026-07-05
 - Added: network-hardware masking (anti-fingerprint of the box itself) in all three deploy scripts — hides the "Linux laptop" tells from the ISP / proxy provider: outbound **TTL normalized to 128** (Windows-like, vs Linux 64) via `iptables -j TTL`, **TCP timestamps off**, neutral **hostname `router`** (no `family-…` in DHCP/mDNS), **avahi/mDNS disabled**, and **MAC spoofing** of the WAN interface (random, plausible OUI). MAC spoofing is auto-skipped during a remote (`ssh`) deploy since it would drop the link — it's applied only on a local run, with the manual command printed otherwise. Applied and verified live on the Ubuntu box (tcpdump confirmed egress `ttl 128`). Note: this masks the box from the ISP; it does **not** change what target sites see (they see the residential exit node), and it cannot spoof the connected devices' TLS/JA3 fingerprints — that requires an antidetect browser, not a transparent gateway.
 
