@@ -47,7 +47,7 @@ die() {
 have_net() { curl -s --max-time 8 https://google.com -o /dev/null 2>/dev/null; }
 
 # ── Шапка ─────────────────────────────────────────────────────────────────────
-clear
+clear 2>/dev/null || true
 echo -e "${B}╔══════════════════════════════════════════════╗${N}"
 echo -e "${B}║${W}     JackalRouter — Установка на Pi 5        ${B}║${N}"
 echo -e "${B}║${C}  Прокси-шлюз (sing-box TProxy) для роутера  ${B}║${N}"

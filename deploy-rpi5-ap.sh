@@ -50,7 +50,7 @@ die() {
 have_net() { curl -s --max-time 8 https://google.com -o /dev/null 2>/dev/null; }
 
 # ── Шапка ─────────────────────────────────────────────────────────────────────
-clear
+clear 2>/dev/null || true
 echo -e "${B}╔══════════════════════════════════════════════╗${N}"
 echo -e "${B}║${W}    JackalRouter — Pi как Wi-Fi роутер       ${B}║${N}"
 echo -e "${B}║${C}  Интернет по кабелю → раздача по Wi-Fi      ${B}║${N}"

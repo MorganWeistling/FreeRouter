@@ -19,9 +19,16 @@ import sys
 import shutil
 import subprocess
 
-# ── ANSI-цвета (включаем обработку на Windows 10+) ────────────────────────────
+# ── Вывод в UTF-8 (иначе рамки/кириллица падают в cp1251 при пайпе/старой cmd) ─
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 if os.name == "nt":
-    os.system("")
+    os.system("")                        # включить ANSI-escape на Win10+
+    os.system("chcp 65001 >nul 2>&1")    # консоль в UTF-8, чтобы рендерились рамки
+
 R = "\033[0;31m"; G = "\033[0;32m"; Y = "\033[0;33m"
 B = "\033[0;34m"; C = "\033[0;36m"; W = "\033[1;37m"; N = "\033[0m"
 

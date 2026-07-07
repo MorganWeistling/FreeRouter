@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.11.1] - 2026-07-05
+- Fixed: all deploy scripts died on the very first line (`clear`) when run without a proper TTY/TERM — e.g. when launched remotely by `deploy.py` over `ssh` or detached — printing a cryptic `'unknown': I need something more specific.` under `set -euo pipefail`. `clear` is now non-fatal (`clear 2>/dev/null || true`). Verified end-to-end: a full remote deploy now completes through all 8 steps.
+- Fixed: `deploy.py` crashed on Windows with `UnicodeEncodeError` when its output was piped/redirected (cp1251) — now forces UTF-8 output (and `chcp 65001` on Windows) so the boxes/Cyrillic render without crashing.
+
 ## [1.11.0] - 2026-07-05
 - Added: `deploy.py` (+ `deploy.bat` launcher) — one-command remote deploy from the client. Enter the server IP + SSH login, it checks the connection, sets up passwordless `sudo` (NOPASSWD), lets you pick the deploy type by a simple name (UBUNTU + ROUTER / RASPBERRY + ROUTER / RASPBERRY + WIFI), then copies the files over `scp` and runs the matching installer over `ssh -t` — no more manual file copying. Normalizes CRLF→LF on the server so scripts run even if checked out on Windows.
 - Added: `.gitattributes` forcing LF on `*.sh` / `*.service` / `*.py` so server scripts are never broken by Windows line endings.
